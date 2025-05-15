@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 强制设置工作目录为脚本所在目录
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$(readlink -f "$0")")" || cd "/usr/local/xx" || exit 1
 
 # 确保正确加载模块
 SCRIPT_DIR="$(pwd)"
@@ -165,12 +165,15 @@ show_main_menu() {
 create_xx_shortcut() {
     # 获取当前脚本的绝对路径
     local SCRIPT_ABSOLUTE_PATH=$(readlink -f "$0")
+    local SCRIPT_ABSOLUTE_DIR=$(dirname "$SCRIPT_ABSOLUTE_PATH")
     
     if [ ! -f "/usr/local/bin/xx" ]; then
         echo '#!/bin/bash' > /usr/local/bin/xx
-        echo "bash \"$SCRIPT_ABSOLUTE_PATH\"" >> /usr/local/bin/xx
+        # 直接在快捷方式中指定正确的模块文件路径
+        echo "SCRIPT_MODULES_DIR=\"/usr/local/xx\"" > /usr/local/bin/xx
+        echo "cd \"\$SCRIPT_MODULES_DIR\" && bash \"\$SCRIPT_MODULES_DIR/xx.sh\"" >> /usr/local/bin/xx
         chmod +x /usr/local/bin/xx
-        echo -e "${GREEN}快捷命令 'xx' 已创建，指向 $SCRIPT_ABSOLUTE_PATH${NC}"
+        echo -e "${GREEN}快捷命令 'xx' 已创建，指向固定目录 /usr/local/xx${NC}"
     fi
 }
 

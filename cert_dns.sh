@@ -1476,19 +1476,39 @@ view_all_certificates() {
         local self_domains=()
         local self_paths=()
         local self_keys=()
+        local domains_seen=()  # 跟踪已经见过的域名
         
         # 获取自签名证书信息
         while IFS= read -r line; do
             if [[ $line == *"自签名证书:"* ]]; then
                 domain=$(echo $line | cut -d':' -f2)
+                
+                # 检查是否已经处理过这个域名
+                local domain_seen=false
+                for seen_domain in "${domains_seen[@]}"; do
+                    if [[ "$seen_domain" == "$domain" ]]; then
+                        domain_seen=true
+                        break
+                    fi
+                done
+                
+                # 如果已经处理过此域名，跳过
+                if [ "$domain_seen" = true ]; then
+                    continue
+                fi
+                
+                # 添加到已处理域名列表
+                domains_seen+=("$domain")
+                
+                # 继续处理证书信息
                 self_domains+=("$domain")
                 
-                # 获取证书路径
-                cert_path=$(grep "证书路径.*$domain" "$main_log" | head -1 | cut -d':' -f3-)
+                # 获取证书路径 - 使用最新的记录（尾部匹配）
+                cert_path=$(grep "证书路径.*$domain" "$main_log" | tail -1 | cut -d':' -f3-)
                 self_paths+=("$cert_path")
                 
-                # 获取密钥路径
-                key_path=$(grep "私钥路径.*$domain" "$main_log" | head -1 | cut -d':' -f3-)
+                # 获取密钥路径 - 使用最新的记录（尾部匹配）
+                key_path=$(grep "私钥路径.*$domain" "$main_log" | tail -1 | cut -d':' -f3-)
                 if [ -z "$key_path" ]; then
                     key_path="${cert_path%.pem}.key"
                 fi
@@ -1538,19 +1558,39 @@ view_all_certificates() {
         local ca_domains=()
         local ca_paths=()
         local ca_keys=()
+        local ca_domains_seen=()  # 跟踪已经见过的域名
         
         # 获取CA签名证书信息
         while IFS= read -r line; do
             if [[ $line == *"SSL证书:"* && $line != *"自签名证书:"* ]]; then
                 domain=$(echo $line | cut -d':' -f2)
+                
+                # 检查是否已经处理过这个域名
+                local domain_seen=false
+                for seen_domain in "${ca_domains_seen[@]}"; do
+                    if [[ "$seen_domain" == "$domain" ]]; then
+                        domain_seen=true
+                        break
+                    fi
+                done
+                
+                # 如果已经处理过此域名，跳过
+                if [ "$domain_seen" = true ]; then
+                    continue
+                fi
+                
+                # 添加到已处理域名列表
+                ca_domains_seen+=("$domain")
+                
+                # 继续处理证书信息
                 ca_domains+=("$domain")
                 
-                # 获取证书路径
-                cert_path=$(grep "证书路径.*$domain" "$main_log" | head -1 | cut -d':' -f3-)
+                # 获取证书路径 - 使用最新的记录（尾部匹配）
+                cert_path=$(grep "证书路径.*$domain" "$main_log" | tail -1 | cut -d':' -f3-)
                 ca_paths+=("$cert_path")
                 
-                # 获取密钥路径
-                key_path=$(grep "私钥路径.*$domain" "$main_log" | head -1 | cut -d':' -f3-)
+                # 获取密钥路径 - 使用最新的记录（尾部匹配）
+                key_path=$(grep "私钥路径.*$domain" "$main_log" | tail -1 | cut -d':' -f3-)
                 ca_keys+=("$key_path")
             fi
         done < "$main_log"

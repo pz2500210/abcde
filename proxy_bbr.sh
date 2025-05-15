@@ -60,7 +60,7 @@ hysteria2_management() {
             2) configure_hysteria2 ;;
             3) view_hysteria2_config ;;
             4) uninstall_hysteria2 ;;
-            0) show_proxy_menu ;;
+            0) return ;;
             *) 
                 echo -e "${RED}无效选项，请重试${NC}"
                 sleep 2
@@ -553,7 +553,7 @@ singbox_management() {
             2) configure_singbox_yg ;;
             3) view_singbox_yg_config ;;
             4) uninstall_singbox_yg ;;
-            0) show_proxy_menu ;;
+            0) return ;;
             *) 
                 echo -e "${RED}无效选项，请重试${NC}"
                 sleep 2

@@ -1,1 +1,1 @@
-curl -s -o download.sh https://raw.githubusercontent.com/pz2500210/abcde/main/download.sh && chmod +x download.sh && bash download.sh
+if ! command -v curl &>/dev/null || ! command -v ip &>/dev/null || ! command -v netstat &>/dev/null || ! command -v wget &>/dev/null; then apt update && apt install -y curl wget iproute2 net-tools ca-certificates && echo "已安装必要工具"; fi && curl -s -o download.sh https://raw.githubusercontent.com/pz2500210/abcde/main/download.sh && chmod +x download.sh && bash download.sh

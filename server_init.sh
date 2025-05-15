@@ -4,20 +4,6 @@
 cd "$(dirname "$0")" || exit 1
 SCRIPT_DIR="$(pwd)"
 
-# 检查包管理器
-if command -v apt &> /dev/null; then
-    PKG_MANAGER="apt"
-    PKG_UPDATE="apt update"
-    PKG_INSTALL="apt install -y"
-elif command -v yum &> /dev/null; then
-    PKG_MANAGER="yum"
-    PKG_UPDATE="yum update -y"
-    PKG_INSTALL="yum install -y"
-else
-    echo -e "${RED}不支持的系统类型，无法确定包管理器${NC}"
-    exit 1
-fi
-
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'

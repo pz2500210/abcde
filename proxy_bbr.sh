@@ -6,35 +6,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     SCRIPT_DIR="$(pwd)"
 fi
 
-# 代理软件管理菜单
-show_proxy_menu() {
-    clear
-    echo -e "${BLUE}=================================================${NC}"
-    echo -e "${GREEN}           代理软件管理菜单                     ${NC}"
-    echo -e "${BLUE}=================================================${NC}"
-    echo -e "${YELLOW}请选择操作:${NC}"
-    echo -e "  ${GREEN}1.${NC} Hysteria-2管理"
-    echo -e "  ${GREEN}2.${NC} 3X-UI管理"
-    echo -e "  ${GREEN}3.${NC} Sing-box-yg管理"
-    echo -e "  ${GREEN}4.${NC} BBR加速管理"
-    echo -e "  ${GREEN}0.${NC} 返回主菜单"
-    echo -e "${BLUE}=================================================${NC}"
-    
-    read -p "请选择 [0-4]: " PROXY_OPTION
-    
-    case $PROXY_OPTION in
-        1) hysteria2_management ;;
-        2) xui_management ;;
-        3) singbox_management ;;
-        4) bbr_management ;;
-        0) return ;;
-        *) 
-            echo -e "${RED}无效选项，请重试${NC}"
-            sleep 2
-            show_proxy_menu
-            ;;
-    esac
-}
+
 
 # Hysteria-2管理
 hysteria2_management() {
@@ -536,15 +508,19 @@ singbox_management() {
     echo -e "${GREEN}Sing-box-yg管理:${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
-    # 检查是否已安装
-    if [ -f "/usr/local/bin/sing-box" ]; then
+    # 使用更全面的检测方法
+    if [ -f "/usr/local/bin/sing-box" ] || [ -f "/usr/bin/sing-box" ] || 
+       [ -f "/usr/local/etc/sing-box/config.json" ] || command -v sb &>/dev/null || 
+       systemctl status sing-box &>/dev/null || 
+       grep -q "Sing-box-yg" /root/.sb_logs/main_install.log 2>/dev/null; then
+        
         echo -e "${YELLOW}检测到Sing-box-yg已安装${NC}"
         echo -e "${YELLOW}请选择操作:${NC}"
         echo -e "  1) 重新安装"
         echo -e "  2) 修改配置"
         echo -e "  3) 查看配置"
         echo -e "  4) 卸载"
-        echo -e "  0) 返回上级菜单"
+        echo -e "  0) 返回主菜单"
         
         read -p "选择 [0-4]: " SB_OPTION
         
@@ -561,8 +537,22 @@ singbox_management() {
                 ;;
         esac
     else
-        echo -e "${YELLOW}未检测到Sing-box-yg，开始安装...${NC}"
-        install_singbox_yg
+        echo -e "${YELLOW}未检测到Sing-box-yg${NC}"
+        echo -e "${YELLOW}请选择操作:${NC}"
+        echo -e "  1) 安装 Sing-box-yg"
+        echo -e "  0) 返回主菜单"
+        
+        read -p "选择 [0-1]: " SB_OPTION
+        
+        case $SB_OPTION in
+            1) install_singbox_yg ;;
+            0) return ;;
+            *) 
+                echo -e "${RED}无效选项，请重试${NC}"
+                sleep 2
+                singbox_management
+                ;;
+        esac
     fi
 }
 
@@ -583,19 +573,20 @@ install_singbox_yg() {
     
     # 安装Sing-box-yg
     echo -e "${YELLOW}开始安装Sing-box-yg...${NC}"
+    
+    # 直接执行安装脚本
     bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
     
     # 检查安装结果
     if [ -f "/usr/local/bin/sing-box" ]; then
         echo -e "${GREEN}Sing-box-yg安装成功!${NC}"
-        
         # 更新主安装记录
         update_main_install_log "Sing-box-yg"
     else
-        echo -e "${RED}Sing-box-yg安装失败，请检查网络或稍后再试${NC}"
+        echo -e "${YELLOW}返回Sing-box-yg管理菜单...${NC}"
     fi
     
-    read -p "按回车键继续..." temp
+    sleep 1
     singbox_management
 }
 
@@ -606,18 +597,41 @@ configure_singbox_yg() {
     echo -e "${GREEN}配置Sing-box-yg:${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
-    # 检查是否安装
-    if [ ! -f "/usr/local/bin/sing-box" ]; then
+    # 使用更全面的检测方法
+    if [ -f "/usr/local/bin/sing-box" ] || [ -f "/usr/bin/sing-box" ] || 
+       [ -f "/usr/local/etc/sing-box/config.json" ] || command -v sb &>/dev/null || 
+       systemctl status sing-box &>/dev/null || 
+       grep -q "Sing-box-yg" /root/.sb_logs/main_install.log 2>/dev/null; then
+        
+        # 直接执行sb命令
+        if command -v sb &>/dev/null; then
+            echo -e "${YELLOW}正在打开Sing-box-yg配置面板...${NC}"
+            sb
+        else
+            # 如果没有sb命令，尝试通过官方脚本
+            echo -e "${YELLOW}未找到sb命令，尝试通过官方脚本打开配置...${NC}"
+            bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
+        fi
+    else
         echo -e "${RED}Sing-box-yg未安装，请先安装${NC}"
-        read -p "按回车键继续..." temp
-        singbox_management
-        return
+        echo -e "${YELLOW}检查以下可能的安装路径：${NC}"
+        echo -e "  - /usr/local/bin/sing-box: $([ -f "/usr/local/bin/sing-box" ] && echo "存在" || echo "不存在")"
+        echo -e "  - /usr/bin/sing-box: $([ -f "/usr/bin/sing-box" ] && echo "存在" || echo "不存在")"
+        echo -e "  - 配置文件: $([ -f "/usr/local/etc/sing-box/config.json" ] && echo "存在" || echo "不存在")"
+        echo -e "  - sb命令: $(command -v sb &>/dev/null && echo "存在" || echo "不存在")"
+        echo -e "  - systemd服务: $(systemctl status sing-box &>/dev/null && echo "存在" || echo "不存在")"
+        
+        echo -e "${YELLOW}是否强制尝试打开配置面板？(y/n)${NC}"
+        read -p "选择 [y/n]: " FORCE_OPEN
+        
+        if [[ $FORCE_OPEN =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}尝试通过官方脚本打开配置...${NC}"
+            bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
+        fi
     fi
     
-    # 运行Sing-box-yg自带的配置命令
-    bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
-    
-    read -p "按回车键继续..." temp
+    echo -e "${YELLOW}返回Sing-box-yg管理菜单...${NC}"
+    sleep 1
     singbox_management
 }
 
@@ -628,24 +642,37 @@ view_singbox_yg_config() {
     echo -e "${GREEN}Sing-box-yg配置信息:${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
-    # 检查是否安装
-    if [ ! -f "/usr/local/bin/sing-box" ]; then
-        echo -e "${RED}Sing-box-yg未安装，请先安装${NC}"
-        read -p "按回车键继续..." temp
-        singbox_management
-        return
-    fi
-    
-    # 检查服务状态
-    echo -e "${YELLOW}服务状态:${NC}"
-    systemctl status sing-box --no-pager
-    
-    # 显示配置文件
-    if [ -f "/usr/local/etc/sing-box/config.json" ]; then
-        echo -e "\n${YELLOW}配置文件内容:${NC}"
-        cat /usr/local/etc/sing-box/config.json
+    # 使用更全面的检测方法
+    if [ -f "/usr/local/bin/sing-box" ] || [ -f "/usr/bin/sing-box" ] || 
+       [ -f "/usr/local/etc/sing-box/config.json" ] || command -v sb &>/dev/null || 
+       systemctl status sing-box &>/dev/null || 
+       grep -q "Sing-box-yg" /root/.sb_logs/main_install.log 2>/dev/null; then
+        
+        echo -e "${YELLOW}即将打开Sing-box-yg面板并选择'9. 刷新并查看节点'选项${NC}"
+        echo -e "${GREEN}请手动选择选项'9. 刷新并查看节点'选项${NC}"
+        sleep 2
+        
+        if command -v sb &>/dev/null; then
+            sb
+        else
+            bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
+        fi
     else
-        echo -e "${RED}未找到配置文件${NC}"
+        echo -e "${RED}Sing-box-yg未安装，请先安装${NC}"
+        echo -e "${YELLOW}检查以下可能的安装路径：${NC}"
+        echo -e "  - /usr/local/bin/sing-box: $([ -f "/usr/local/bin/sing-box" ] && echo "存在" || echo "不存在")"
+        echo -e "  - /usr/bin/sing-box: $([ -f "/usr/bin/sing-box" ] && echo "存在" || echo "不存在")"
+        echo -e "  - 配置文件: $([ -f "/usr/local/etc/sing-box/config.json" ] && echo "存在" || echo "不存在")"
+        echo -e "  - sb命令: $(command -v sb &>/dev/null && echo "存在" || echo "不存在")"
+        echo -e "  - systemd服务: $(systemctl status sing-box &>/dev/null && echo "存在" || echo "不存在")"
+        
+        echo -e "${YELLOW}是否强制尝试查看配置？(y/n)${NC}"
+        read -p "选择 [y/n]: " FORCE_VIEW
+        
+        if [[ $FORCE_VIEW =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}尝试通过官方脚本查看配置...${NC}"
+            bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
+        fi
     fi
     
     read -p "按回车键继续..." temp
@@ -659,38 +686,114 @@ uninstall_singbox_yg() {
     echo -e "${GREEN}卸载Sing-box-yg:${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
-    # 检查是否安装
-    if [ ! -f "/usr/local/bin/sing-box" ]; then
-        echo -e "${RED}Sing-box-yg未安装，无需卸载${NC}"
-        read -p "按回车键继续..." temp
-        singbox_management
-        return
+    # 使用统一的检测方法，与其他函数保持一致
+    if [ -f "/usr/local/bin/sing-box" ] || [ -f "/usr/bin/sing-box" ] || 
+       [ -f "/usr/local/etc/sing-box/config.json" ] || command -v sb &>/dev/null || 
+       systemctl status sing-box &>/dev/null || 
+       grep -q "Sing-box-yg" /root/.sb_logs/main_install.log 2>/dev/null; then
+        
+        # 如果sb命令存在，优先使用面板卸载
+        if command -v sb &>/dev/null; then
+            echo -e "${GREEN}检测到sb命令，使用面板卸载...${NC}"
+            echo -e "${GREEN}请在面板中选择'2. 删除卸载Sing-box'选项${NC}"
+            sleep 2
+            sb
+            
+            # 询问用户是否已完成卸载
+            echo ""
+            read -p "您已在面板中执行卸载操作了吗？(y/n): " PANEL_UNINSTALL
+            if [[ $PANEL_UNINSTALL =~ ^[Yy]$ ]]; then
+                echo -e "${GREEN}卸载已完成，返回菜单${NC}"
+                read -p "按回车键继续..." temp
+                singbox_management
+                return
+            fi
+        else
+            # 如果没有sb命令，使用官方脚本
+            echo -e "${GREEN}使用官方脚本卸载...${NC}"
+            echo -e "${GREEN}请在脚本中选择'2. 删除卸载Sing-box'选项${NC}"
+            sleep 2
+            bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
+            
+            # 询问用户是否已完成卸载
+            echo ""
+            read -p "您已通过官方脚本执行卸载操作了吗？(y/n): " SCRIPT_UNINSTALL
+            if [[ $SCRIPT_UNINSTALL =~ ^[Yy]$ ]]; then
+                echo -e "${GREEN}卸载已完成，返回菜单${NC}"
+                read -p "按回车键继续..." temp
+                singbox_management
+                return
+            fi
+        fi
+        
+        # 如果用户未确认卸载完成，执行强制清理
+        echo -e "${YELLOW}执行强制清理操作...${NC}"
+    else
+        echo -e "${RED}未检测到Sing-box-yg安装痕迹${NC}"
+        read -p "是否继续尝试强制清理？(y/n): " FORCE_CLEAN
+        if [[ ! $FORCE_CLEAN =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}取消操作，返回菜单${NC}"
+            read -p "按回车键继续..." temp
+            singbox_management
+            return
+        fi
+        echo -e "${YELLOW}执行强制清理操作...${NC}"
     fi
     
-    echo -e "${YELLOW}正在卸载Sing-box-yg...${NC}"
-    
-    # 使用Sing-box-yg自带的卸载功能
-    bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh) uninstall
-    
-    # 如果自带卸载失败，手动卸载
+    # 清理二进制文件
     if [ -f "/usr/local/bin/sing-box" ]; then
-        # 停止服务
-        systemctl stop sing-box 2>/dev/null
-        systemctl disable sing-box 2>/dev/null
-        
-        # 删除文件
+        echo -e "${YELLOW}删除 /usr/local/bin/sing-box${NC}"
         rm -f /usr/local/bin/sing-box
+    fi
+    
+    if [ -f "/usr/bin/sing-box" ]; then
+        echo -e "${YELLOW}删除 /usr/bin/sing-box${NC}"
+        rm -f /usr/bin/sing-box
+    fi
+    
+    # 清理配置目录
+    if [ -d "/usr/local/etc/sing-box" ]; then
+        echo -e "${YELLOW}删除 /usr/local/etc/sing-box/${NC}"
         rm -rf /usr/local/etc/sing-box
+    fi
+    
+    # 清理systemd服务
+    if [ -f "/etc/systemd/system/sing-box.service" ]; then
+        echo -e "${YELLOW}删除并停止sing-box服务${NC}"
+        systemctl stop sing-box &>/dev/null
+        systemctl disable sing-box &>/dev/null
         rm -f /etc/systemd/system/sing-box.service
-        
-        # 重新加载systemd
         systemctl daemon-reload
     fi
     
-    # 从安装日志中删除
-    sed -i '/Sing-box-yg/d' /root/.sb_logs/main_install.log 2>/dev/null
+    # 清理sb命令
+    if [ -f "/usr/local/bin/sb" ]; then
+        echo -e "${YELLOW}删除 /usr/local/bin/sb${NC}"
+        rm -f /usr/local/bin/sb
+    fi
     
-    echo -e "${GREEN}Sing-box-yg卸载完成${NC}"
+    if [ -f "/usr/bin/sb" ]; then
+        echo -e "${YELLOW}删除 /usr/bin/sb${NC}"
+        rm -f /usr/bin/sb
+    fi
+    
+    # 清理其他可能位置
+    rm -f /usr/sbin/sing-box 2>/dev/null
+    rm -f /opt/sing-box/sing-box 2>/dev/null
+    rm -rf /opt/sing-box 2>/dev/null
+    
+    # 从安装日志中删除
+    if [ -f "/root/.sb_logs/main_install.log" ]; then
+        echo -e "${YELLOW}从安装日志中删除记录${NC}"
+        sed -i '/Sing-box-yg/d' /root/.sb_logs/main_install.log 2>/dev/null
+    fi
+    
+    # 杀死sing-box进程
+    echo -e "${YELLOW}终止sing-box进程...${NC}"
+    pkill -9 sing-box 2>/dev/null
+    
+    echo -e "${GREEN}Sing-box-yg强制清理完成${NC}"
+    
     read -p "按回车键继续..." temp
     singbox_management
 }

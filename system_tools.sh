@@ -458,7 +458,7 @@ uninstall() {
     case $UNINSTALL_OPTION in
         1) uninstall_hysteria2 ;;
         2) uninstall_3xui ;;
-        3) uninstall_singbox_yg ;;
+        3) uninstall_singbox_yg11 ;;
         4) uninstall_all ;;
         0) return ;;
         *) 
@@ -541,7 +541,7 @@ uninstall_3xui() {
 }
 
 # 卸载Sing-box-yg
-uninstall_singbox_yg() {
+uninstall_singbox_yg11() {
     clear
     echo -e "${BLUE}=================================================${NC}"
     echo -e "${GREEN}卸载Sing-box-yg:${NC}"

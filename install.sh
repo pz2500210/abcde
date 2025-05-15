@@ -87,6 +87,64 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# 检查基础命令是否可用
+echo -e "${YELLOW}检查基础系统命令...${NC}"
+
+# 检查systemctl是否安装
+if ! command -v systemctl &> /dev/null; then
+    echo -e "${YELLOW}systemctl命令不可用，正在安装systemd...${NC}"
+    if command -v apt &> /dev/null; then
+        apt-get update && apt-get install -y systemd
+    elif command -v yum &> /dev/null; then
+        yum install -y systemd
+    else
+        echo -e "${RED}无法安装systemd，既不支持apt也不支持yum${NC}"
+        echo -e "${YELLOW}尝试继续安装过程，但部分功能可能不可用${NC}"
+    fi
+fi
+
+# 检查apt是否安装（针对Debian系）
+if ! command -v apt &> /dev/null && ! command -v yum &> /dev/null; then
+    echo -e "${YELLOW}既没有检测到apt也没有检测到yum，尝试安装apt...${NC}"
+    # 在某些最小化安装中，可能需要单独安装apt
+    if command -v dpkg &> /dev/null; then
+        # 这是Debian系统，但apt可能未安装
+        if command -v wget &> /dev/null; then
+            echo -e "${YELLOW}使用wget下载apt...${NC}"
+            wget -O /tmp/apt.deb http://ftp.debian.org/debian/pool/main/a/apt/apt_2.2.4_amd64.deb
+            dpkg -i /tmp/apt.deb || echo -e "${RED}安装apt失败${NC}"
+        elif command -v curl &> /dev/null; then
+            echo -e "${YELLOW}使用curl下载apt...${NC}"
+            curl -o /tmp/apt.deb http://ftp.debian.org/debian/pool/main/a/apt/apt_2.2.4_amd64.deb
+            dpkg -i /tmp/apt.deb || echo -e "${RED}安装apt失败${NC}"
+        else
+            echo -e "${RED}无法安装apt，wget和curl命令都不可用${NC}"
+        fi
+    else
+        echo -e "${RED}无法确定系统类型，既不是Debian系也不是RedHat系${NC}"
+        echo -e "${YELLOW}尝试继续安装过程，但可能会失败${NC}"
+    fi
+fi
+
+# 检查基础网络工具
+if ! command -v wget &> /dev/null; then
+    echo -e "${YELLOW}wget命令不可用，尝试安装...${NC}"
+    if command -v apt &> /dev/null; then
+        apt-get update && apt-get install -y wget
+    elif command -v yum &> /dev/null; then
+        yum install -y wget
+    fi
+fi
+
+if ! command -v grep &> /dev/null || ! command -v cut &> /dev/null || ! command -v tr &> /dev/null; then
+    echo -e "${YELLOW}基础文本处理工具不可用，尝试安装...${NC}"
+    if command -v apt &> /dev/null; then
+        apt-get update && apt-get install -y grep coreutils
+    elif command -v yum &> /dev/null; then
+        yum install -y grep coreutils
+    fi
+fi
+
 # SSH服务检查（添加到此处）
 if ! command -v sshd &> /dev/null && ! command -v ssh &> /dev/null; then
     echo -e "${YELLOW}SSH服务未安装，正在安装...${NC}"
@@ -97,12 +155,12 @@ fi
 
 # 自动检测GitHub仓库URL
 echo -e "${YELLOW}检测GitHub仓库URL...${NC}"
-SCRIPT_URL=$(curl -s -I https://raw.githubusercontent.com/pz2500210/abcde/main/xx.sh | grep -i "location" | cut -d' ' -f2 | tr -d '\r')
+SCRIPT_URL=$(curl -s -I https://raw.githubusercontent.com/pz2500210/abcd/main/xx.sh | grep -i "location" | cut -d' ' -f2 | tr -d '\r')
 if [[ -n "$SCRIPT_URL" && "$SCRIPT_URL" == *"refs/heads"* ]]; then
-    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/refs/heads/main"
+    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/refs/heads/main"
     echo -e "${YELLOW}使用URL: ${REPO_URL}${NC}"
 else
-    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/main"
+    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/main"
     echo -e "${YELLOW}使用URL: ${REPO_URL}${NC}"
 fi
 

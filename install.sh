@@ -97,12 +97,12 @@ fi
 
 # 自动检测GitHub仓库URL
 echo -e "${YELLOW}检测GitHub仓库URL...${NC}"
-SCRIPT_URL=$(curl -s -I https://raw.githubusercontent.com/pz2500210/abcd/main/xx.sh | grep -i "location" | cut -d' ' -f2 | tr -d '\r')
+SCRIPT_URL=$(curl -s -I https://raw.githubusercontent.com/pz2500210/abcde/main/xx.sh | grep -i "location" | cut -d' ' -f2 | tr -d '\r')
 if [[ -n "$SCRIPT_URL" && "$SCRIPT_URL" == *"refs/heads"* ]]; then
-    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/refs/heads/main"
+    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/refs/heads/main"
     echo -e "${YELLOW}使用URL: ${REPO_URL}${NC}"
 else
-    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/main"
+    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/main"
     echo -e "${YELLOW}使用URL: ${REPO_URL}${NC}"
 fi
 

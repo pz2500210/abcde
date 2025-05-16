@@ -26,7 +26,7 @@ fi
 
 # 检测GitHub仓库URL
 echo -e "${YELLOW}检测GitHub仓库URL...${NC}"
-REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/main"
+REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/main"
 echo -e "${YELLOW}使用URL: ${REPO_URL}${NC}"
 
 # 创建临时目录
@@ -42,7 +42,7 @@ chmod +x install.sh
 # 检查文件是否下载成功
 if [ ! -s install.sh ]; then
     echo -e "${RED}文件下载失败，尝试备用URL...${NC}"
-    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcde/refs/heads/main"    
+    REPO_URL="https://raw.githubusercontent.com/pz2500210/abcd/refs/heads/main"    
     echo -e "${YELLOW}使用备用URL: ${REPO_URL}${NC}"
     curl -s -o install.sh ${REPO_URL}/install.sh
     chmod +x install.sh

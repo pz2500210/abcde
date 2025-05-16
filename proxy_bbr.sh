@@ -503,7 +503,13 @@ uninstall_3xui() {
 
 # Sing-box-yg管理
 singbox_management() {
-    clear
+    # 新增参数，默认为1表示清屏
+    local should_clear=${1:-1}
+    
+    if [ "$should_clear" -eq 1 ]; then
+        clear
+    fi
+    
     echo -e "${BLUE}=================================================${NC}"
     echo -e "${GREEN}Sing-box-yg管理:${NC}"
     echo -e "${BLUE}=================================================${NC}"
@@ -558,7 +564,7 @@ singbox_management() {
 
 # 安装Sing-box-yg
 install_singbox_yg() {
-    clear
+    
     echo -e "${BLUE}=================================================${NC}"
     echo -e "${GREEN}安装Sing-box-yg:${NC}"
     echo -e "${BLUE}=================================================${NC}"
@@ -577,17 +583,27 @@ install_singbox_yg() {
     # 直接执行安装脚本
     bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
     
-    # 检查安装结果
-    if [ -f "/usr/local/bin/sing-box" ]; then
+    # 改进检查安装结果的逻辑
+    if [ -f "/usr/local/bin/sing-box" ] || [ -f "/usr/bin/sing-box" ] || command -v sb &>/dev/null || [ -f "/usr/local/etc/sing-box/config.json" ]; then
         echo -e "${GREEN}Sing-box-yg安装成功!${NC}"
         # 更新主安装记录
         update_main_install_log "Sing-box-yg"
     else
-        echo -e "${YELLOW}返回Sing-box-yg管理菜单...${NC}"
+        # 再次检查，避免漏检
+        if systemctl status sing-box &>/dev/null; then
+            echo -e "${GREEN}Sing-box-yg服务运行中，安装成功!${NC}"
+            update_main_install_log "Sing-box-yg"
+        else
+            echo -e "${RED}Sing-box-yg安装可能未完成${NC}"
+            echo -e "${YELLOW}如果您已完成安装但系统未检测到，请忽略此消息${NC}"
+        fi
     fi
     
-    sleep 1
-    singbox_management
+    read -p "按回车键继续..." temp
+        # 显式调用singbox_management
+    singbox_management 0
+    # 防止返回到原调用者
+    return
 }
 
 # 配置Sing-box-yg
@@ -699,15 +715,20 @@ uninstall_singbox_yg() {
             sleep 2
             sb
             
-            # 询问用户是否已完成卸载
+            # 询问用户是否已完成卸载，默认为N
             echo ""
-            read -p "您已在面板中执行卸载操作了吗？(y/n): " PANEL_UNINSTALL
-            if [[ $PANEL_UNINSTALL =~ ^[Yy]$ ]]; then
-                echo -e "${GREEN}卸载已完成，返回菜单${NC}"
+            read -p "您已在面板中执行卸载操作了吗？(y/n) [n]: " PANEL_UNINSTALL
+            # 如果用户直接按回车，设置为N
+            PANEL_UNINSTALL=${PANEL_UNINSTALL:-n}
+            
+            if [[ ! $PANEL_UNINSTALL =~ ^[Yy]$ ]]; then
+                echo -e "${GREEN}取消操作，返回菜单${NC}"
                 read -p "按回车键继续..." temp
                 singbox_management
                 return
             fi
+            # 如果用户选择y，则继续执行强制清理
+            echo -e "${YELLOW}执行额外清理操作...${NC}"
         else
             # 如果没有sb命令，使用官方脚本
             echo -e "${GREEN}使用官方脚本卸载...${NC}"
@@ -715,22 +736,29 @@ uninstall_singbox_yg() {
             sleep 2
             bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh)
             
-            # 询问用户是否已完成卸载
+            # 询问用户是否已完成卸载，默认为N
             echo ""
-            read -p "您已通过官方脚本执行卸载操作了吗？(y/n): " SCRIPT_UNINSTALL
-            if [[ $SCRIPT_UNINSTALL =~ ^[Yy]$ ]]; then
-                echo -e "${GREEN}卸载已完成，返回菜单${NC}"
+            read -p "您已通过官方脚本执行卸载操作了吗？(y/n) [n]: " SCRIPT_UNINSTALL
+            # 如果用户直接按回车，设置为N
+            SCRIPT_UNINSTALL=${SCRIPT_UNINSTALL:-n}
+            
+            if [[ ! $SCRIPT_UNINSTALL =~ ^[Yy]$ ]]; then
+                echo -e "${GREEN}取消操作，返回菜单${NC}"
                 read -p "按回车键继续..." temp
                 singbox_management
                 return
             fi
+            # 如果用户选择y，则继续执行强制清理
+            echo -e "${YELLOW}执行额外清理操作...${NC}"
         fi
         
-        # 如果用户未确认卸载完成，执行强制清理
-        echo -e "${YELLOW}执行强制清理操作...${NC}"
+        # 逻辑修改：当用户确认已执行卸载操作时，才执行强制清理
     else
         echo -e "${RED}未检测到Sing-box-yg安装痕迹${NC}"
-        read -p "是否继续尝试强制清理？(y/n): " FORCE_CLEAN
+        read -p "是否继续尝试强制清理？(y/n) [y]: " FORCE_CLEAN
+        # 如果用户直接按回车，设置为N
+        FORCE_CLEAN=${FORCE_CLEAN:-n}
+        
         if [[ ! $FORCE_CLEAN =~ ^[Yy]$ ]]; then
             echo -e "${GREEN}取消操作，返回菜单${NC}"
             read -p "按回车键继续..." temp

@@ -1,7 +1,10 @@
 一键安装
 可以在任何用户账户下运行以下命令一键安装本系统：
 
+```bash
 if ! command -v curl &>/dev/null; then apt update && apt install -y curl && echo "已安装curl"; fi && curl -s -o download.sh https://raw.githubusercontent.com/pz2500210/abcde/main/download.sh && chmod +x download.sh && bash download.sh
+```
+```
 
 
 

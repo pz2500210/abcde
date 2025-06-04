@@ -70,11 +70,69 @@ firewall_settings() {
         fi
     else
         echo -e "${RED}未检测到支持的防火墙${NC}"
-        read -p "按回车键继续..." temp
-        return
+        echo -e "${YELLOW}是否要安装iptables防火墙？${NC}"
+        echo -e "  1) 是"
+        echo -e "  2) 否"
+        read -p "请选择 [1-2]: " INSTALL_OPTION
+        
+        case $INSTALL_OPTION in
+            1)
+                echo -e "${YELLOW}正在安装iptables防火墙...${NC}"
+                
+                # 根据系统类型安装iptables
+                if [ -f /etc/debian_version ]; then
+                    # Debian/Ubuntu系统
+                    apt-get update
+                    
+                    # 预设iptables-persistent安装选项，避免交互式提示
+                    echo -e "${YELLOW}预设iptables-persistent配置选项...${NC}"
+                    export DEBIAN_FRONTEND=noninteractive
+                    echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+                    echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+                    
+                    apt-get install -y iptables iptables-persistent
+                    echo -e "${GREEN}iptables已安装${NC}"
+                elif [ -f /etc/redhat-release ]; then
+                    # CentOS/RHEL系统
+                    yum install -y iptables-services
+                    systemctl enable iptables
+                    systemctl start iptables
+                    echo -e "${GREEN}iptables已安装并已启动${NC}"
+                else
+                    echo -e "${RED}无法确定系统类型，请手动安装防火墙${NC}"
+                    read -p "按回车键继续..." temp
+                    return
+                fi
+                
+                # 安装完成后重新调用此函数
+                echo -e "${GREEN}防火墙安装完成，重新加载防火墙设置...${NC}"
+                sleep 2
+                firewall_settings
+                return
+                ;;
+            2)
+                echo -e "${YELLOW}未安装防火墙，某些功能可能不可用${NC}"
+                read -p "按回车键继续..." temp
+                return
+                ;;
+            *)
+                echo -e "${RED}无效选项，请重试${NC}"
+                sleep 2
+                firewall_settings
+                return
+                ;;
+        esac
     fi
     
     echo -e "${YELLOW}检测到防火墙类型: $firewall_type${NC}"
+    
+    # 检查并显示IPv6状态
+    if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+        echo -e "${YELLOW}IPv6状态: ${RED}已禁用${NC}"
+    else
+        echo -e "${YELLOW}IPv6状态: ${GREEN}已启用${NC}"
+    fi
+    
     echo -e "${YELLOW}请选择操作:${NC}"
     echo -e "  1) 查看防火墙状态"
     echo -e "  2) 开启防火墙"
@@ -84,9 +142,10 @@ firewall_settings() {
     echo -e "  6) 自动配置应用端口"
     echo -e "  7) 开放端口 (IPv6)"
     echo -e "  8) 关闭端口 (IPv6)"
+    echo -e "  99) IPv6开启和关闭"
     echo -e "  0) 返回"
     
-    read -p "请选择 [0-8]: " FW_OPTION
+    read -p "请选择 [0-8,99]: " FW_OPTION
                 
     case $FW_OPTION in
         1) 
@@ -286,12 +345,50 @@ EOF
             esac
             ;;
         4) # 开放IPv4端口
+            # 显示当前已开放的IPv4端口
+            echo -e "${YELLOW}当前已开放的IPv4端口:${NC}"
+            case $firewall_type in
+                ufw)
+                    if ! command -v ufw &>/dev/null; then
+                        echo -e "${RED}系统未安装UFW防火墙${NC}"
+                    else
+                        echo -e "${CYAN}TCP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*0.0.0.0/0.*tcp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo -e "\n${CYAN}UDP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*0.0.0.0/0.*udp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo
+                    fi
+                    ;;
+                firewalld)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv4 | grep -o "[0-9]*/tcp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv4 | grep -o "[0-9]*/udp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+                iptables)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    iptables -L INPUT -n | grep "tcp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    iptables -L INPUT -n | grep "udp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+            esac
+            
             echo -e "${YELLOW}请输入要开放的IPv4端口:${NC}"
             read -p "端口: " OPEN_PORT
             
             if [ -z "$OPEN_PORT" ]; then
                 echo -e "${RED}端口不能为空${NC}"
             else
+                # 验证端口范围
+                if ! [[ "$OPEN_PORT" =~ ^[0-9]+$ ]] || [ "$OPEN_PORT" -lt 1 ] || [ "$OPEN_PORT" -gt 65535 ]; then
+                    echo -e "${RED}无效的端口号: $OPEN_PORT${NC}"
+                    echo -e "${YELLOW}端口号必须是1-65535之间的整数${NC}"
+                    read -p "按回车键继续..." temp
+                    return
+                fi
+            
                 echo -e "${YELLOW}请选择协议:${NC}"
                 echo -e "  1) TCP"
                 echo -e "  2) UDP"
@@ -299,54 +396,214 @@ EOF
                 read -p "选择 [1-3] (默认: 3): " PROTOCOL_OPTION
                 PROTOCOL_OPTION=${PROTOCOL_OPTION:-3}
                 
-                echo -e "${YELLOW}开放IPv4端口 $OPEN_PORT...${NC}"
+                # 检查端口是否已开放
+                local port_already_open=false
                 case $firewall_type in
-                    ufw) 
-                        case $PROTOCOL_OPTION in
-                            1) ufw allow $OPEN_PORT/tcp ;;
-                            2) ufw allow $OPEN_PORT/udp ;;
-                            *) ufw allow $OPEN_PORT/tcp && ufw allow $OPEN_PORT/udp ;;
-                        esac
+                    ufw)
+                        if ! command -v ufw &>/dev/null; then
+                            echo -e "${RED}系统未安装UFW防火墙${NC}"
+                        elif [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && ufw status | grep -q "^$OPEN_PORT/tcp.*ALLOW.*0.0.0.0/0"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && ufw status | grep -q "^$OPEN_PORT/udp.*ALLOW.*0.0.0.0/0"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        fi
                         ;;
-                    firewalld) 
-                        case $PROTOCOL_OPTION in
-                            1) firewall-cmd --permanent --add-port=$OPEN_PORT/tcp ;;
-                            2) firewall-cmd --permanent --add-port=$OPEN_PORT/udp ;;
-                            *) 
-                                firewall-cmd --permanent --add-port=$OPEN_PORT/tcp 
-                                firewall-cmd --permanent --add-port=$OPEN_PORT/udp 
-                                ;;
-                        esac
-                        firewall-cmd --reload 
+                    firewalld)
+                        if [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && firewall-cmd --list-ports --family=ipv4 | grep -q "$OPEN_PORT/tcp"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && firewall-cmd --list-ports --family=ipv4 | grep -q "$OPEN_PORT/udp"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        fi
                         ;;
-                    iptables) 
-                        case $PROTOCOL_OPTION in
-                            1) iptables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT ;;
-                            2) iptables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT ;;
-                            *) 
-                                iptables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
-                                iptables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
-                                ;;
-                        esac
-                        
-                        # 保存规则
-                        if command -v iptables-save >/dev/null 2>&1; then
-                            if [ -d "/etc/iptables" ]; then
-                                iptables-save > /etc/iptables/rules.v4
-                            fi
+                    iptables)
+                        if [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && port_rule_exists $OPEN_PORT "tcp" "ipv4"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && port_rule_exists $OPEN_PORT "udp" "ipv4"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
                         fi
                         ;;
                 esac
-                echo -e "${GREEN}IPv4端口 $OPEN_PORT 已开放${NC}"
+                
+                # 如果端口未开放，则开放端口
+                if ! $port_already_open; then
+                    echo -e "${YELLOW}开放IPv4端口 $OPEN_PORT...${NC}"
+                    case $firewall_type in
+                        ufw) 
+                            if ! command -v ufw &>/dev/null; then
+                                echo -e "${RED}系统未安装UFW防火墙${NC}"
+                                break
+                            fi
+                            case $PROTOCOL_OPTION in
+                                1) 
+                                    ufw allow from 0.0.0.0/0 to any port $OPEN_PORT proto tcp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                                    ufw allow from 0.0.0.0/0 to any port $OPEN_PORT proto udp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    ufw allow from 0.0.0.0/0 to any port $OPEN_PORT proto tcp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    ufw allow from 0.0.0.0/0 to any port $OPEN_PORT proto udp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                            esac
+                            ;;
+                        firewalld) 
+                            case $PROTOCOL_OPTION in
+                                1) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/tcp --family=ipv4
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/udp --family=ipv4
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/tcp --family=ipv4
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/udp --family=ipv4
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                            esac
+                            firewall-cmd --reload 
+                            ;;
+                        iptables) 
+                            case $PROTOCOL_OPTION in
+                                1) 
+                                    iptables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                                    iptables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    iptables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    iptables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv4 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv4 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                            esac
+                            
+                            # 保存规则
+                            if command -v iptables-save >/dev/null 2>&1; then
+                                if [ -d "/etc/iptables" ]; then
+                                    iptables-save > /etc/iptables/rules.v4
+                                else
+                                    mkdir -p /etc/iptables
+                                    iptables-save > /etc/iptables/rules.v4
+                                fi
+                            fi
+                            ;;
+                    esac
+                fi
             fi
             ;;
         5) # 关闭IPv4端口
+            # 显示当前已开放的IPv4端口
+            echo -e "${YELLOW}当前已开放的IPv4端口:${NC}"
+            case $firewall_type in
+                ufw)
+                    if ! command -v ufw &>/dev/null; then
+                        echo -e "${RED}系统未安装UFW防火墙${NC}"
+                    else
+                        echo -e "${CYAN}TCP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*0.0.0.0/0.*tcp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo -e "\n${CYAN}UDP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*0.0.0.0/0.*udp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo
+                    fi
+                    ;;
+                firewalld)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv4 | grep -o "[0-9]*/tcp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv4 | grep -o "[0-9]*/udp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+                iptables)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    iptables -L INPUT -n | grep "tcp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    iptables -L INPUT -n | grep "udp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+            esac
+            
             echo -e "${YELLOW}请输入要关闭的IPv4端口:${NC}"
+            echo -e "输入 'all' 关闭全部端口 (除SSH 22端口外)"
             read -p "端口: " CLOSE_PORT
             
             if [ -z "$CLOSE_PORT" ]; then
                 echo -e "${RED}端口不能为空${NC}"
             else
+                # 验证端口范围
+                if ! [[ "$CLOSE_PORT" =~ ^[0-9]+$ ]] || [ "$CLOSE_PORT" -lt 1 ] || [ "$CLOSE_PORT" -gt 65535 ]; then
+                    echo -e "${RED}无效的端口号: $CLOSE_PORT${NC}"
+                    echo -e "${YELLOW}端口号必须是1-65535之间的整数${NC}"
+                    read -p "按回车键继续..." temp
+                    return
+                fi
+                
                 echo -e "${YELLOW}请选择协议:${NC}"
                 echo -e "  1) TCP"
                 echo -e "  2) UDP"
@@ -357,19 +614,51 @@ EOF
                 echo -e "${YELLOW}关闭IPv4端口 $CLOSE_PORT...${NC}"
                 case $firewall_type in
                     ufw) 
+                        if ! command -v ufw &>/dev/null; then
+                            echo -e "${RED}系统未安装UFW防火墙${NC}"
+                            break
+                        fi
                         case $PROTOCOL_OPTION in
-                            1) ufw delete allow $CLOSE_PORT/tcp ;;
-                            2) ufw delete allow $CLOSE_PORT/udp ;;
-                            *) ufw delete allow $CLOSE_PORT/tcp && ufw delete allow $CLOSE_PORT/udp ;;
+                            1) 
+                                ufw delete allow from 0.0.0.0/0 to any port $CLOSE_PORT proto tcp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv4 TCP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv4 TCP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
+                            2) 
+                                ufw delete allow from 0.0.0.0/0 to any port $CLOSE_PORT proto udp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv4 UDP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv4 UDP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
+                            *) 
+                                ufw delete allow from 0.0.0.0/0 to any port $CLOSE_PORT proto tcp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv4 TCP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv4 TCP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                
+                                ufw delete allow from 0.0.0.0/0 to any port $CLOSE_PORT proto udp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv4 UDP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv4 UDP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
                         esac
                         ;;
                     firewalld) 
                         case $PROTOCOL_OPTION in
-                            1) firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp ;;
-                            2) firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp ;;
+                            1) firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp --family=ipv4 ;;
+                            2) firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp --family=ipv4 ;;
                             *) 
-                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp 
-                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp 
+                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp --family=ipv4 
+                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp --family=ipv4 
                                 ;;
                         esac
                         firewall-cmd --reload 
@@ -401,6 +690,15 @@ EOF
             echo -e "${GREEN}应用端口已配置完成${NC}"
             ;;
         7) # 开放IPv6端口
+            # 检查IPv6是否被禁用
+            if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+                echo -e "${RED}IPv6已被禁用，无法开放IPv6端口${NC}"
+                echo -e "${YELLOW}请先在IPv6开启和关闭设置中启用IPv6${NC}"
+                read -p "按回车键继续..." temp
+                firewall_settings
+                return
+            fi
+            
             # 检查是否支持IPv6
             if ! command -v ip6tables &>/dev/null; then
                 echo -e "${RED}系统不支持IPv6或ip6tables命令不可用${NC}"
@@ -408,6 +706,36 @@ EOF
                 firewall_settings
                 return
             fi
+            
+            # 显示当前已开放的IPv6端口
+            echo -e "${YELLOW}当前已开放的IPv6端口:${NC}"
+            case $firewall_type in
+                ufw)
+                    if ! command -v ufw &>/dev/null; then
+                        echo -e "${RED}系统未安装UFW防火墙${NC}"
+                    else
+                        echo -e "${CYAN}TCP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*::/0.*tcp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo -e "\n${CYAN}UDP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*::/0.*udp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo
+                    fi
+                    ;;
+                firewalld)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv6 | grep -o "[0-9]*/tcp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv6 | grep -o "[0-9]*/udp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+                iptables)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    ip6tables -L INPUT -n | grep "tcp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    ip6tables -L INPUT -n | grep "udp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+            esac
             
             echo -e "${YELLOW}请输入要开放的IPv6端口:${NC}"
             read -p "端口: " OPEN_PORT
@@ -415,6 +743,14 @@ EOF
             if [ -z "$OPEN_PORT" ]; then
                 echo -e "${RED}端口不能为空${NC}"
             else
+                # 验证端口范围
+                if ! [[ "$OPEN_PORT" =~ ^[0-9]+$ ]] || [ "$OPEN_PORT" -lt 1 ] || [ "$OPEN_PORT" -gt 65535 ]; then
+                    echo -e "${RED}无效的端口号: $OPEN_PORT${NC}"
+                    echo -e "${YELLOW}端口号必须是1-65535之间的整数${NC}"
+                    read -p "按回车键继续..." temp
+                    return
+                fi
+                
                 echo -e "${YELLOW}请选择协议:${NC}"
                 echo -e "  1) TCP"
                 echo -e "  2) UDP"
@@ -422,28 +758,178 @@ EOF
                 read -p "选择 [1-3] (默认: 3): " PROTOCOL_OPTION
                 PROTOCOL_OPTION=${PROTOCOL_OPTION:-3}
                 
-                echo -e "${YELLOW}开放IPv6端口 $OPEN_PORT...${NC}"
-                case $PROTOCOL_OPTION in
-                    1) ip6tables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT ;;
-                    2) ip6tables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT ;;
-                    *) 
-                        ip6tables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
-                        ip6tables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
+                # 检查端口是否已开放
+                local port_already_open=false
+                case $firewall_type in
+                    ufw)
+                        if ! command -v ufw &>/dev/null; then
+                            echo -e "${RED}系统未安装UFW防火墙${NC}"
+                        elif [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && ufw status | grep -q "^$OPEN_PORT/tcp.*ALLOW.*::/0"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && ufw status | grep -q "^$OPEN_PORT/udp.*ALLOW.*::/0"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        fi
+                        ;;
+                    firewalld)
+                        if [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && firewall-cmd --list-ports --family=ipv6 | grep -q "$OPEN_PORT/tcp"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && firewall-cmd --list-ports --family=ipv6 | grep -q "$OPEN_PORT/udp"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        fi
+                        ;;
+                    iptables)
+                        if [[ "$PROTOCOL_OPTION" == "1" || "$PROTOCOL_OPTION" == "3" ]] && port_rule_exists $OPEN_PORT "tcp" "ipv6"; then
+                            echo -e "${YELLOW}TCP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        elif [[ "$PROTOCOL_OPTION" == "2" || "$PROTOCOL_OPTION" == "3" ]] && port_rule_exists $OPEN_PORT "udp" "ipv6"; then
+                            echo -e "${YELLOW}UDP端口 $OPEN_PORT 已开放，无需重复添加${NC}"
+                            port_already_open=true
+                        fi
                         ;;
                 esac
                 
-                # 保存规则
-                if command -v ip6tables-save >/dev/null 2>&1; then
-                    if [ -d "/etc/iptables" ]; then
-                        mkdir -p /etc/iptables
-                        ip6tables-save > /etc/iptables/rules.v6
-                    fi
-                fi
+                # 如果端口未开放，则开放端口
+                if ! $port_already_open; then
+                    echo -e "${YELLOW}开放IPv6端口 $OPEN_PORT...${NC}"
+                    case $firewall_type in
+                        ufw)
+                            if ! command -v ufw &>/dev/null; then
+                                echo -e "${RED}系统未安装UFW防火墙${NC}"
+                                break
+                            fi
+                    case $PROTOCOL_OPTION in
+                                1) 
+                                    ufw allow from ::/0 to any port $OPEN_PORT proto tcp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                                    ufw allow from ::/0 to any port $OPEN_PORT proto udp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    ufw allow from ::/0 to any port $OPEN_PORT proto tcp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    ufw allow from ::/0 to any port $OPEN_PORT proto udp
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                            esac
+                            ;;
+                        firewalld)
+                            case $PROTOCOL_OPTION in
+                                1) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/tcp --family=ipv6
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/udp --family=ipv6
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/tcp --family=ipv6
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    firewall-cmd --permanent --add-port=$OPEN_PORT/udp --family=ipv6
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                            esac
+                            firewall-cmd --reload
+                            ;;
+                        iptables)
+                            case $PROTOCOL_OPTION in
+                                1) 
+                            ip6tables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                2) 
+                            ip6tables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    ;;
+                                *) 
+                                    ip6tables -A INPUT -p tcp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 TCP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 TCP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                                    
+                                    ip6tables -A INPUT -p udp --dport $OPEN_PORT -j ACCEPT
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功开放IPv6 UDP端口 $OPEN_PORT${NC}"
+                                    else
+                                        echo -e "${RED}开放IPv6 UDP端口 $OPEN_PORT 失败${NC}"
+                                    fi
+                            ;;
+                        esac
+                        
+                        # 保存规则
+                        if command -v ip6tables-save >/dev/null 2>&1; then
+                            if [ -d "/etc/iptables" ]; then
+                                mkdir -p /etc/iptables
+                                ip6tables-save > /etc/iptables/rules.v6
+                            fi
+                        fi
+                            ;;
+                    esac
                 
-                echo -e "${GREEN}IPv6端口 $OPEN_PORT 已开放${NC}"
+                    echo -e "${GREEN}IPv6端口 $OPEN_PORT 已开放${NC}"
+                fi
             fi
             ;;
         8) # 关闭IPv6端口
+            # 检查IPv6是否被禁用
+            if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+                echo -e "${RED}IPv6已被禁用，无法关闭IPv6端口${NC}"
+                echo -e "${YELLOW}请先在IPv6开启和关闭设置中启用IPv6${NC}"
+                read -p "按回车键继续..." temp
+                firewall_settings
+                return
+            fi
+            
             # 检查是否支持IPv6
             if ! command -v ip6tables &>/dev/null; then
                 echo -e "${RED}系统不支持IPv6或ip6tables命令不可用${NC}"
@@ -452,12 +938,103 @@ EOF
                 return
             fi
             
+            # 显示当前已开放的IPv6端口
+            echo -e "${YELLOW}当前已开放的IPv6端口:${NC}"
+            case $firewall_type in
+                ufw)
+                    if ! command -v ufw &>/dev/null; then
+                        echo -e "${RED}系统未安装UFW防火墙${NC}"
+                    else
+                        echo -e "${CYAN}TCP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*::/0.*tcp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo -e "\n${CYAN}UDP端口:${NC}"
+                        ufw status | grep -E "ALLOW.*::/0.*udp" | awk '{print $1}' | grep -oE "[0-9]+" | sort -n | tr '\n' ' '
+                        echo
+                    fi
+                    ;;
+                firewalld)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv6 | grep -o "[0-9]*/tcp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    firewall-cmd --list-ports --family=ipv6 | grep -o "[0-9]*/udp" | grep -o "[0-9]*" | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+                iptables)
+                    echo -e "${CYAN}TCP端口:${NC}"
+                    ip6tables -L INPUT -n | grep "tcp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo -e "\n${CYAN}UDP端口:${NC}"
+                    ip6tables -L INPUT -n | grep "udp dpt:" | grep -o "dpt:[0-9]*" | cut -d':' -f2 | sort -n | tr '\n' ' '
+                    echo
+                    ;;
+            esac
+            
             echo -e "${YELLOW}请输入要关闭的IPv6端口:${NC}"
+            echo -e "输入 'all' 关闭全部端口 (包括SSH 22端口)"
             read -p "端口: " CLOSE_PORT
             
             if [ -z "$CLOSE_PORT" ]; then
                 echo -e "${RED}端口不能为空${NC}"
+            elif [ "$CLOSE_PORT" = "all" ]; then
+                echo -e "${RED}警告: 即将关闭所有IPv6端口(包括SSH 22端口)!${NC}"
+                echo -e "${YELLOW}这可能会导致无法通过IPv6连接到服务器!${NC}"
+                read -p "确认关闭全部IPv6端口? (y/n): " CONFIRM
+                if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+                    echo -e "${YELLOW}关闭所有IPv6端口(包括SSH)...${NC}"
+                    case $firewall_type in
+                        ufw) 
+                            if ! command -v ufw &>/dev/null; then
+                                echo -e "${RED}系统未安装UFW防火墙${NC}"
+                                break
+                            fi
+                            # 删除所有IPv6规则
+                            for i in $(ufw status numbered | grep "::/0" | cut -d']' -f1 | grep -o '[0-9][0-9]*' | sort -rn); do
+                                ufw --force delete $i 2>/dev/null
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功删除IPv6规则 $i${NC}"
+                                else
+                                    echo -e "${RED}删除IPv6规则 $i 失败${NC}"
+                                fi
+                            done
+                            ;;
+                        firewalld) 
+                            # 关闭所有IPv6端口，不再添加SSH端口
+                            firewall-cmd --permanent --remove-port=1-65535/tcp --family=ipv6
+                            firewall-cmd --permanent --remove-port=1-65535/udp --family=ipv6
+                            firewall-cmd --reload 
+                            ;;
+                        iptables) 
+                            # 清空IPv6规则并设置默认策略
+                            ip6tables -F INPUT
+                            ip6tables -P INPUT DROP
+                            # 允许已建立的连接
+                            ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+                            # 允许本地回环接口
+                            ip6tables -A INPUT -i lo -j ACCEPT
+                            # 不再添加SSH规则
+                            
+                            # 保存规则
+                            if command -v ip6tables-save >/dev/null 2>&1; then
+                                if [ -d "/etc/iptables" ]; then
+                                    mkdir -p /etc/iptables
+                                    ip6tables-save > /etc/iptables/rules.v6
+                                fi
+                            fi
+                            ;;
+                    esac
+                    echo -e "${GREEN}已关闭所有IPv6端口(包括SSH端口)${NC}"
+                    echo -e "${YELLOW}注意：您仍然可以通过IPv4的SSH连接到服务器${NC}"
+                else
+                    echo -e "${YELLOW}操作已取消${NC}"
+                fi
             else
+                # 验证端口范围
+                if ! [[ "$CLOSE_PORT" =~ ^[0-9]+$ ]] || [ "$CLOSE_PORT" -lt 1 ] || [ "$CLOSE_PORT" -gt 65535 ]; then
+                    echo -e "${RED}无效的端口号: $CLOSE_PORT${NC}"
+                    echo -e "${YELLOW}端口号必须是1-65535之间的整数${NC}"
+                    read -p "按回车键继续..." temp
+                    return
+                fi
+                
                 echo -e "${YELLOW}请选择协议:${NC}"
                 echo -e "  1) TCP"
                 echo -e "  2) UDP"
@@ -466,25 +1043,256 @@ EOF
                 PROTOCOL_OPTION=${PROTOCOL_OPTION:-3}
                 
                 echo -e "${YELLOW}关闭IPv6端口 $CLOSE_PORT...${NC}"
-                case $PROTOCOL_OPTION in
-                    1) ip6tables -D INPUT -p tcp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null ;;
-                    2) ip6tables -D INPUT -p udp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null ;;
-                    *) 
-                        ip6tables -D INPUT -p tcp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null
-                        ip6tables -D INPUT -p udp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null
+                case $firewall_type in
+                    ufw)
+                        if ! command -v ufw &>/dev/null; then
+                            echo -e "${RED}系统未安装UFW防火墙${NC}"
+                            break
+                        fi
+                        case $PROTOCOL_OPTION in
+                            1) 
+                                ufw delete allow from ::/0 to any port $CLOSE_PORT proto tcp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv6 TCP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv6 TCP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
+                            2) 
+                                ufw delete allow from ::/0 to any port $CLOSE_PORT proto udp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv6 UDP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv6 UDP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
+                            *) 
+                                ufw delete allow from ::/0 to any port $CLOSE_PORT proto tcp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv6 TCP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv6 TCP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                
+                                ufw delete allow from ::/0 to any port $CLOSE_PORT proto udp
+                                if [ $? -eq 0 ]; then
+                                    echo -e "${GREEN}成功关闭IPv6 UDP端口 $CLOSE_PORT${NC}"
+                                else
+                                    echo -e "${RED}关闭IPv6 UDP端口 $CLOSE_PORT 失败${NC}"
+                                fi
+                                ;;
+                        esac
+                        ;;
+                    firewalld)
+                        case $PROTOCOL_OPTION in
+                            1) firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp --family=ipv6 ;;
+                            2) firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp --family=ipv6 ;;
+                            *) 
+                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/tcp --family=ipv6
+                                firewall-cmd --permanent --remove-port=$CLOSE_PORT/udp --family=ipv6
+                                ;;
+                        esac
+                        firewall-cmd --reload
+                        ;;
+                    iptables)
+                        case $PROTOCOL_OPTION in
+                            1) ip6tables -D INPUT -p tcp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null ;;
+                            2) ip6tables -D INPUT -p udp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null ;;
+                            *) 
+                                ip6tables -D INPUT -p tcp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null
+                                ip6tables -D INPUT -p udp --dport $CLOSE_PORT -j ACCEPT 2>/dev/null
+                                ;;
+                        esac
+                        
+                        # 保存规则
+                        if command -v ip6tables-save >/dev/null 2>&1; then
+                            if [ -d "/etc/iptables" ]; then
+                                mkdir -p /etc/iptables
+                                ip6tables-save > /etc/iptables/rules.v6
+                            fi
+                        fi
                         ;;
                 esac
                 
-                # 保存规则
-                if command -v ip6tables-save >/dev/null 2>&1; then
-                    if [ -d "/etc/iptables" ]; then
-                        mkdir -p /etc/iptables
-                        ip6tables-save > /etc/iptables/rules.v6
-                    fi
-                fi
-                
                 echo -e "${GREEN}IPv6端口 $CLOSE_PORT 已关闭${NC}"
             fi
+            ;;
+        99) # IPv6开启和关闭
+            echo -e "${BLUE}=================================================${NC}"
+            echo -e "${GREEN}IPv6开启和关闭设置:${NC}"
+            echo -e "${BLUE}=================================================${NC}"
+            
+            # 检查当前IPv6状态
+            IPV6_STATUS="已启用"
+            if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+                IPV6_STATUS="已禁用"
+            fi
+            
+            echo -e "${YELLOW}当前IPv6状态: ${IPV6_STATUS}${NC}"
+            echo -e "${YELLOW}请选择操作:${NC}"
+            echo -e "  1) 启用IPv6"
+            echo -e "  2) 禁用IPv6"
+            echo -e "  0) 返回"
+            
+            read -p "请选择 [0-2]: " IPV6_OPTION
+            
+            case $IPV6_OPTION in
+                1)
+                    echo -e "${YELLOW}正在启用IPv6...${NC}"
+                    
+                    # 临时启用IPv6
+                    sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1
+                    
+                    # 不再自动开放IPv6的SSH端口(22)，但添加基本的IPv6安全规则
+                    echo -e "${YELLOW}添加基本IPv6防火墙规则...${NC}"
+                    
+                    # 根据防火墙类型添加基本IPv6规则
+                    case $firewall_type in
+                        ufw)
+                            # UFW默认会处理基本规则，不需要额外配置
+                            ;;
+                        firewalld)
+                            if command -v firewall-cmd &>/dev/null; then
+                                # Firewalld默认会处理基本规则
+                                firewall-cmd --reload
+                            fi
+                            ;;
+                        iptables)
+                            if command -v ip6tables &>/dev/null; then
+                                echo -e "${YELLOW}在ip6tables中添加基本IPv6规则...${NC}"
+                                # 删除所有已建立连接规则，稍后重新添加一个
+                                while ip6tables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do
+                                    : # 空操作
+                                done
+                                
+                                # 删除所有本地回环规则，稍后重新添加一个
+                                while ip6tables -D INPUT -i lo -j ACCEPT 2>/dev/null; do
+                                    : # 空操作
+                                done
+                                
+                                # 添加一个已建立连接规则
+                                ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+                                echo -e "${GREEN}已添加IPv6已建立连接规则${NC}"
+                                
+                                # 添加一个本地回环规则
+                                ip6tables -A INPUT -i lo -j ACCEPT
+                                echo -e "${GREEN}已添加IPv6本地回环接口规则${NC}"
+                                
+                                # 保存规则
+                                if command -v ip6tables-save >/dev/null 2>&1; then
+                                    if [ -d "/etc/iptables" ]; then
+                                        mkdir -p /etc/iptables 2>/dev/null
+                                        ip6tables-save > /etc/iptables/rules.v6
+                                    fi
+                                fi
+                            fi
+                            ;;
+                    esac
+                    
+                    # 持久化配置
+                    if [ -f "/etc/sysctl.conf" ]; then
+                        # 删除或修改已存在的IPv6启用配置
+                        sed -i '/net.ipv6.conf.all.disable_ipv6/d' /etc/sysctl.conf
+                        sed -i '/net.ipv6.conf.default.disable_ipv6/d' /etc/sysctl.conf
+                        sed -i '/net.ipv6.conf.lo.disable_ipv6/d' /etc/sysctl.conf
+                        
+                        # 添加IPv6启用配置
+                        echo "net.ipv6.conf.all.disable_ipv6 = 0" >> /etc/sysctl.conf
+                        echo "net.ipv6.conf.default.disable_ipv6 = 0" >> /etc/sysctl.conf
+                        echo "net.ipv6.conf.lo.disable_ipv6 = 0" >> /etc/sysctl.conf
+                        
+                        # 重新加载配置
+                        sysctl -p >/dev/null 2>&1
+                    fi
+                    
+                    echo -e "${GREEN}IPv6已启用，可能需要重启网络或系统才能完全生效${NC}"
+                    echo -e "${YELLOW}注意：未自动开放IPv6的SSH端口(22)，如需使用请手动开放${NC}"
+                    ;;
+                2)
+                    echo -e "${YELLOW}正在禁用IPv6...${NC}"
+                    
+                    # 临时禁用IPv6
+                    sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1
+                    sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1
+                    
+                    # 删除所有IPv6防火墙规则
+                    echo -e "${YELLOW}删除所有IPv6防火墙规则...${NC}"
+                    
+                    # 根据防火墙类型删除IPv6规则
+                    case $firewall_type in
+                        ufw)
+                            if command -v ufw &>/dev/null; then
+                                echo -e "${YELLOW}删除UFW的IPv6规则...${NC}"
+                                # 删除所有IPv6规则
+                                for i in $(ufw status numbered | grep "::/0" | cut -d']' -f1 | grep -o '[0-9][0-9]*' | sort -rn); do
+                                    ufw --force delete $i 2>/dev/null
+                                    if [ $? -eq 0 ]; then
+                                        echo -e "${GREEN}成功删除IPv6规则 $i${NC}"
+                                    fi
+                                done
+                            fi
+                            ;;
+                        firewalld)
+                            if command -v firewall-cmd &>/dev/null; then
+                                echo -e "${YELLOW}删除firewalld的IPv6规则...${NC}"
+                                # 删除所有IPv6端口规则
+                                firewall-cmd --permanent --remove-port=1-65535/tcp --family=ipv6 2>/dev/null
+                                firewall-cmd --permanent --remove-port=1-65535/udp --family=ipv6 2>/dev/null
+                                firewall-cmd --reload 2>/dev/null
+                            fi
+                            ;;
+                        iptables)
+                            if command -v ip6tables &>/dev/null; then
+                                echo -e "${YELLOW}删除ip6tables规则...${NC}"
+                                # 清空所有IPv6规则
+                                ip6tables -F 2>/dev/null
+                                ip6tables -X 2>/dev/null
+                                ip6tables -t mangle -F 2>/dev/null
+                                ip6tables -t mangle -X 2>/dev/null
+                                ip6tables -P INPUT ACCEPT 2>/dev/null
+                                ip6tables -P FORWARD ACCEPT 2>/dev/null
+                                ip6tables -P OUTPUT ACCEPT 2>/dev/null
+                                
+                                # 保存清空的规则
+                                if command -v ip6tables-save >/dev/null 2>&1; then
+                                    if [ -d "/etc/iptables" ]; then
+                                        mkdir -p /etc/iptables 2>/dev/null
+                                        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+                                    fi
+                                fi
+                            fi
+                            ;;
+                    esac
+                    
+                    # 持久化配置
+                    if [ -f "/etc/sysctl.conf" ]; then
+                        # 删除或修改已存在的IPv6启用配置
+                        sed -i '/net.ipv6.conf.all.disable_ipv6/d' /etc/sysctl.conf
+                        sed -i '/net.ipv6.conf.default.disable_ipv6/d' /etc/sysctl.conf
+                        sed -i '/net.ipv6.conf.lo.disable_ipv6/d' /etc/sysctl.conf
+                        
+                        # 添加IPv6禁用配置
+                        echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
+                        echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
+                        echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
+                        
+                        # 重新加载配置
+                        sysctl -p >/dev/null 2>&1
+                    fi
+                    
+                    echo -e "${GREEN}IPv6已禁用，所有IPv6防火墙规则已清除，可能需要重启网络或系统才能完全生效${NC}"
+                    ;;
+                0)
+                    # 返回上级菜单
+                    ;;
+                *)
+                    echo -e "${RED}无效选项，请重试${NC}"
+                    sleep 2
+                    ;;
+            esac
             ;;
         0) 
             return
@@ -504,11 +1312,20 @@ EOF
 port_rule_exists() {
     local port=$1
     local protocol=$2  # tcp or udp
+    local ip_version=$3  # ipv4 or ipv6
     
-    if iptables -L INPUT -n | grep -q "$protocol dpt:$port"; then
-        return 0  # 规则已存在
+    if [ "$ip_version" = "ipv6" ]; then
+        if ip6tables -L INPUT -n | grep -q "$protocol dpt:$port"; then
+            return 0  # 规则已存在
+        else
+            return 1  # 规则不存在
+        fi
     else
-        return 1  # 规则不存在
+        if iptables -L INPUT -n | grep -q "$protocol dpt:$port"; then
+            return 0  # 规则已存在
+        else
+            return 1  # 规则不存在
+        fi
     fi
 }
 
@@ -517,6 +1334,32 @@ auto_add_app_ports() {
     local firewall_type=$1
     local ports_added=0
     local active_ports=()
+    
+    # 检查IPv6是否被禁用
+    local ipv6_enabled=true
+    if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+        ipv6_enabled=false
+        echo -e "${YELLOW}检测到IPv6已禁用，将不添加IPv6规则${NC}"
+    else
+        # 先删除所有重复的IPv6基本规则，只保留一个
+        if [[ "$firewall_type" == "iptables" ]] && command -v ip6tables &>/dev/null; then
+            # 删除所有已建立连接规则，稍后重新添加一个
+            while ip6tables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do
+                : # 空操作
+            done
+            
+            # 删除所有本地回环规则，稍后重新添加一个
+            while ip6tables -D INPUT -i lo -j ACCEPT 2>/dev/null; do
+                : # 空操作
+            done
+            
+            # 添加一个已建立连接规则
+            ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+            
+            # 添加一个本地回环规则
+            ip6tables -A INPUT -i lo -j ACCEPT
+        fi
+    fi
     
     echo -e "${YELLOW}检测已安装应用的端口...${NC}"
     
@@ -628,8 +1471,9 @@ auto_add_app_ports() {
         
         # 添加常用系统端口（仅记录端口号，不添加到active_ports数组）
         echo "22" >> $temp_active_ports  # SSH
-        echo "80" >> $temp_active_ports  # HTTP
-        echo "443" >> $temp_active_ports # HTTPS
+        # 不再自动添加80和443端口
+        # echo "80" >> $temp_active_ports  # HTTP
+        # echo "443" >> $temp_active_ports # HTTPS
         
         # 去重
         sort -u $temp_active_ports -o $temp_active_ports
@@ -650,12 +1494,20 @@ auto_add_app_ports() {
                 firewall-cmd --list-ports | grep -q "$port/udp" || firewall-cmd --permanent --add-port=$port/udp
                 ;;
             iptables) 
-                port_rule_exists $port "tcp" || iptables -A INPUT -p tcp --dport $port -j ACCEPT
-                port_rule_exists $port "udp" || iptables -A INPUT -p udp --dport $port -j ACCEPT
-                # IPv6规则
-                if command -v ip6tables &>/dev/null; then
-                    ip6tables -L INPUT -n | grep -q "tcp dpt:$port" || ip6tables -A INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
-                    ip6tables -L INPUT -n | grep -q "udp dpt:$port" || ip6tables -A INPUT -p udp --dport $port -j ACCEPT 2>/dev/null || true
+                port_rule_exists $port "tcp" "ipv4" || iptables -A INPUT -p tcp --dport $port -j ACCEPT
+                port_rule_exists $port "udp" "ipv4" || iptables -A INPUT -p udp --dport $port -j ACCEPT
+                # IPv6规则，仅在IPv6启用时添加
+                if $ipv6_enabled && command -v ip6tables &>/dev/null; then
+                    # 检查规则是否存在，不存在才添加
+                    port_rule_exists $port "tcp" "ipv6" || {
+                        ip6tables -A INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
+                        echo -e "${GREEN}添加IPv6 TCP端口 ${port}${NC}"
+                    }
+                    
+                    port_rule_exists $port "udp" "ipv6" || {
+                        ip6tables -A INPUT -p udp --dport $port -j ACCEPT 2>/dev/null || true
+                        echo -e "${GREEN}添加IPv6 UDP端口 ${port}${NC}"
+                    }
                 fi
                 ;;
         esac
@@ -666,28 +1518,17 @@ auto_add_app_ports() {
     # 单独添加常用系统端口（仅TCP）
     echo -e "${YELLOW}添加常用端口...${NC}"
     
-    # SSH, HTTP, HTTPS (仅TCP)
+    # 只添加IPv4的SSH端口(22)，不再自动添加80和443，也不添加IPv6的SSH
     case $firewall_type in
         ufw) 
-            ufw status | grep -q "22/tcp" || ufw allow 22/tcp
-            ufw status | grep -q "80/tcp" || ufw allow 80/tcp
-            ufw status | grep -q "443/tcp" || ufw allow 443/tcp
+            ufw status | grep -q "22/tcp" || ufw allow from 0.0.0.0/0 to any port 22 proto tcp
             ;;
         firewalld) 
-            firewall-cmd --list-ports | grep -q "22/tcp" || firewall-cmd --permanent --add-port=22/tcp
-            firewall-cmd --list-ports | grep -q "80/tcp" || firewall-cmd --permanent --add-port=80/tcp
-            firewall-cmd --list-ports | grep -q "443/tcp" || firewall-cmd --permanent --add-port=443/tcp
+            firewall-cmd --list-ports | grep -q "22/tcp" || firewall-cmd --permanent --add-port=22/tcp --family=ipv4
             ;;
         iptables) 
-            port_rule_exists 22 "tcp" || iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-            port_rule_exists 80 "tcp" || iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-            port_rule_exists 443 "tcp" || iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-            # IPv6规则
-            if command -v ip6tables &>/dev/null; then
-                ip6tables -L INPUT -n | grep -q "tcp dpt:22" || ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
-                ip6tables -L INPUT -n | grep -q "tcp dpt:80" || ip6tables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-                ip6tables -L INPUT -n | grep -q "tcp dpt:443" || ip6tables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-            fi
+            port_rule_exists 22 "tcp" "ipv4" || iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+            # 不再自动添加IPv6的SSH端口
             ;;
     esac
     
@@ -701,7 +1542,7 @@ auto_add_app_ports() {
         
         # 检查每个TCP端口是否仍然活跃
         for tcp_port in $current_tcp_ports; do
-            if ! grep -q "^$tcp_port$" $temp_active_ports && [[ "$tcp_port" != "22" ]] && [[ "$tcp_port" != "80" ]] && [[ "$tcp_port" != "443" ]]; then
+            if ! grep -q "^$tcp_port$" $temp_active_ports && [[ "$tcp_port" != "22" ]]; then
                 echo -e "${YELLOW}删除不再活跃的TCP端口规则: ${tcp_port}${NC}"
                 iptables -D INPUT -p tcp --dport $tcp_port -j ACCEPT 2>/dev/null || true
             fi
@@ -709,26 +1550,25 @@ auto_add_app_ports() {
         
         # 检查每个UDP端口是否仍然活跃
         for udp_port in $current_udp_ports; do
-            if ! grep -q "^$udp_port$" $temp_active_ports && [[ "$udp_port" != "22" ]] && [[ "$udp_port" != "80" ]] && [[ "$udp_port" != "443" ]]; then
+            if ! grep -q "^$udp_port$" $temp_active_ports && [[ "$udp_port" != "22" ]]; then
                 echo -e "${YELLOW}删除不再活跃的UDP端口规则: ${udp_port}${NC}"
                 iptables -D INPUT -p udp --dport $udp_port -j ACCEPT 2>/dev/null || true
             fi
         done
         
-        # 特殊处理：删除22, 80, 443的UDP规则，因为这些通常只需要TCP
+        # 特殊处理：删除22的UDP规则
         echo -e "${YELLOW}删除不必要的常用端口UDP规则...${NC}"
         iptables -D INPUT -p udp --dport 22 -j ACCEPT 2>/dev/null || true
-        iptables -D INPUT -p udp --dport 80 -j ACCEPT 2>/dev/null || true
-        iptables -D INPUT -p udp --dport 443 -j ACCEPT 2>/dev/null || true
         
-        # 同样处理IPv6规则
-        if command -v ip6tables &>/dev/null; then
+        # 同样处理IPv6规则，仅在IPv6启用时执行
+        if $ipv6_enabled && command -v ip6tables &>/dev/null; then
+            # 获取当前IPv6规则中的所有端口
             current_tcp6_ports=$(ip6tables -L INPUT -n | grep "tcp dpt:" | grep -o 'dpt:[0-9]*' | cut -d':' -f2 | sort -u)
             current_udp6_ports=$(ip6tables -L INPUT -n | grep "udp dpt:" | grep -o 'dpt:[0-9]*' | cut -d':' -f2 | sort -u)
             
             # 检查每个TCP端口是否仍然活跃
             for tcp_port in $current_tcp6_ports; do
-                if ! grep -q "^$tcp_port$" $temp_active_ports && [[ "$tcp_port" != "22" ]] && [[ "$tcp_port" != "80" ]] && [[ "$tcp_port" != "443" ]]; then
+                if ! grep -q "^$tcp_port$" $temp_active_ports && [[ "$tcp_port" != "22" ]]; then
                     echo -e "${YELLOW}删除不再活跃的IPv6 TCP端口规则: ${tcp_port}${NC}"
                     ip6tables -D INPUT -p tcp --dport $tcp_port -j ACCEPT 2>/dev/null || true
                 fi
@@ -736,17 +1576,44 @@ auto_add_app_ports() {
             
             # 检查每个UDP端口是否仍然活跃
             for udp_port in $current_udp6_ports; do
-                if ! grep -q "^$udp_port$" $temp_active_ports && [[ "$udp_port" != "22" ]] && [[ "$udp_port" != "80" ]] && [[ "$udp_port" != "443" ]]; then
+                if ! grep -q "^$udp_port$" $temp_active_ports && [[ "$udp_port" != "22" ]]; then
                     echo -e "${YELLOW}删除不再活跃的IPv6 UDP端口规则: ${udp_port}${NC}"
                     ip6tables -D INPUT -p udp --dport $udp_port -j ACCEPT 2>/dev/null || true
                 fi
             done
             
-            # 特殊处理：删除IPv6的22, 80, 443的UDP规则
+            # 特殊处理：删除IPv6的22的UDP规则
             echo -e "${YELLOW}删除不必要的常用端口IPv6 UDP规则...${NC}"
             ip6tables -D INPUT -p udp --dport 22 -j ACCEPT 2>/dev/null || true
-            ip6tables -D INPUT -p udp --dport 80 -j ACCEPT 2>/dev/null || true
-            ip6tables -D INPUT -p udp --dport 443 -j ACCEPT 2>/dev/null || true
+            
+            # 检查并删除重复的IPv6基本规则
+            echo -e "${YELLOW}检查并删除重复的IPv6基本规则...${NC}"
+            
+            # 计算ESTABLISHED,RELATED规则数量
+            local established_count=$(ip6tables -L INPUT -n | grep -c "RELATED,ESTABLISHED")
+            
+            # 如果有多个ESTABLISHED,RELATED规则，保留一个，删除其余
+            if [ "$established_count" -gt 1 ]; then
+                echo -e "${YELLOW}发现${established_count}个重复的已建立连接规则，删除多余规则...${NC}"
+                # 保留第一条规则，从第二条开始删除
+                for ((i=2; i<=established_count; i++)); do
+                    ip6tables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+                done
+                echo -e "${GREEN}已删除重复的已建立连接规则${NC}"
+            fi
+            
+            # 计算lo回环规则数量
+            local loopback_count=$(ip6tables -L INPUT -n | grep -c " lo ")
+            
+            # 如果有多个lo回环规则，保留一个，删除其余
+            if [ "$loopback_count" -gt 1 ]; then
+                echo -e "${YELLOW}发现${loopback_count}个重复的本地回环接口规则，删除多余规则...${NC}"
+                # 保留第一条规则，从第二条开始删除
+                for ((i=2; i<=loopback_count; i++)); do
+                    ip6tables -D INPUT -i lo -j ACCEPT 2>/dev/null || true
+                done
+                echo -e "${GREEN}已删除重复的本地回环接口规则${NC}"
+            fi
         fi
     fi
     
@@ -761,8 +1628,8 @@ auto_add_app_ports() {
                 iptables-save > /etc/iptables/rules.v4
             fi
             
-            # 保存IPv6规则
-            if command -v ip6tables-save >/dev/null 2>&1 && command -v ip6tables >/dev/null 2>&1; then
+            # 保存IPv6规则，仅在IPv6启用时执行
+            if $ipv6_enabled && command -v ip6tables-save >/dev/null 2>&1 && command -v ip6tables >/dev/null 2>&1; then
                 ip6tables-save > /etc/iptables/rules.v6
             fi
             echo -e "${GREEN}防火墙规则已保存${NC}"

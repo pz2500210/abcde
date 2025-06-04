@@ -145,7 +145,7 @@ if ! command -v grep &> /dev/null || ! command -v cut &> /dev/null || ! command 
     fi
 fi
 
-# SSH服务检查（添加到此处）
+# SSH服务检查
 if ! command -v sshd &> /dev/null && ! command -v ssh &> /dev/null; then
     echo -e "${YELLOW}SSH服务未安装，正在安装...${NC}"
     apt-get update && apt-get install -y openssh-server || yum install -y openssh-server

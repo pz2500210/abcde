@@ -152,13 +152,13 @@ show_main_menu() {
     echo -e "  ${GREEN}2.${NC} 安装3X-UI"
     echo -e "  ${GREEN}3.${NC} 安装Sing-box-yg"
     echo -e "  ${GREEN}4.${NC} 防火墙设置"
-    echo -e "  ${GREEN}5.${NC} 系统工具"
-    echo -e "  ${GREEN}6.${NC} 安装SSL证书"
-    echo -e "  ${GREEN}7.${NC} DNS认证管理"
-    echo -e "  ${GREEN}8.${NC} 安装BBR加速"
+    echo -e "  ${GREEN}5.${NC} 安装SSL证书"
+    echo -e "  ${GREEN}6.${NC} DNS认证管理"
+    echo -e "  ${GREEN}7.${NC} 安装BBR加速"
+    echo -e "  ${GREEN}8.${NC} 系统工具"
     echo -e "  ${GREEN}9.${NC} 卸载"
     echo -e "  ${GREEN}0.${NC} 退出"
-                echo -e "${BLUE}=================================================${NC}"
+    echo -e "${BLUE}=================================================${NC}"
 }
 
 # 创建xx命令快捷方式
@@ -214,10 +214,10 @@ main() {
             2) xui_management ;;
             3) singbox_management ;;
             4) firewall_settings ;;
-            5) system_tools ;;
-            6) certificate_management ;;
-            7) dns_management ;;
-            8) bbr_management ;;
+            5) certificate_management ;;
+            6) dns_management ;;
+            7) bbr_management ;;
+            8) system_tools ;;
             9) uninstall ;;
             0) exit 0 ;;
             *) echo -e "${RED}无效选项，请重试${NC}" ;;

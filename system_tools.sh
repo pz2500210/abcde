@@ -61,23 +61,21 @@ system_tools() {
     echo -e "  2) 网络测速"
     echo -e "  3) 端口管理"
     echo -e "  4) 系统更新"
-    echo -e "  5) 防火墙设置"
-    echo -e "  6) 卸载软件"
-    echo -e "  7) 重启系统"
-    echo -e "  8) 关机"
+    echo -e "  5) 卸载软件"
+    echo -e "  6) 重启系统"
+    echo -e "  7) 关机"
     echo -e "  0) 返回主菜单"
     
-    read -p "请选择 [0-8]: " SYSTEM_OPTION
+    read -p "请选择 [0-7]: " SYSTEM_OPTION
     
     case $SYSTEM_OPTION in
         1) view_system_info ;;
         2) network_speedtest ;;
         3) port_management ;;
         4) system_update ;;
-        5) firewall_settings ;;
-        6) uninstall ;;
-        7) reboot_system ;;
-        8) shutdown_system ;;
+        5) uninstall ;;
+        6) reboot_system ;;
+        7) shutdown_system ;;
         0) return ;;
         *) 
             echo -e "${RED}无效选项，请重试${NC}"
@@ -208,25 +206,53 @@ network_speedtest() {
             if ! command -v speedtest &>/dev/null; then
                 echo -e "${YELLOW}Speedtest未安装，正在安装...${NC}"
                 # 判断系统类型并安装Speedtest
-                if [ -f /etc/debian_version ]; then
+                if [ -f /etc/debian_version ] || [ -f /etc/linuxmint/info ]; then
                     apt update
-                    apt install -y curl
-                    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+                    apt install -y curl gnupg
+                    
+                    # 安装官方建议的方式
+                    curl -s https://install.speedtest.net/app/cli/install.deb.sh | sudo bash
                     apt install -y speedtest
+                    
+                    # 如果上面的方式失败，尝试使用直接安装方式
+                    if ! command -v speedtest &>/dev/null; then
+                        echo -e "${YELLOW}尝试备用安装方式...${NC}"
+                        wget -O speedtest_cli.deb https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-$(dpkg --print-architecture).deb
+                        dpkg -i speedtest_cli.deb
+                        apt install -f -y
+                        rm -f speedtest_cli.deb
+                    fi
                 elif [ -f /etc/redhat-release ]; then
                     yum install -y curl
-                    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.rpm.sh | bash
+                    curl -s https://install.speedtest.net/app/cli/install.rpm.sh | bash
                     yum install -y speedtest
                 else
                     echo -e "${RED}不支持的系统类型，无法安装Speedtest${NC}"
-                    read -p "按回车键继续..." temp
-                    network_speedtest
-                    return
+                    echo -e "${YELLOW}尝试使用pip3安装...${NC}"
+                    if command -v pip3 &>/dev/null; then
+                        pip3 install speedtest-cli
+                        echo -e "${GREEN}安装完成，但请使用speedtest-cli命令代替speedtest${NC}"
+                        alias speedtest="speedtest-cli"
+                    else
+                        echo -e "${RED}pip3未安装，无法继续安装${NC}"
+                        read -p "按回车键继续..." temp
+                        network_speedtest
+                        return
+                    fi
                 fi
             fi
             
             echo -e "${YELLOW}开始测速，请稍候...${NC}"
-            speedtest
+            if command -v speedtest &>/dev/null; then
+                speedtest
+            elif command -v speedtest-cli &>/dev/null; then
+                speedtest-cli
+            else
+                echo -e "${RED}Speedtest安装失败，请手动安装${NC}"
+                echo -e "${YELLOW}可以通过以下命令手动安装:${NC}"
+                echo -e "curl -s https://install.speedtest.net/app/cli/install.deb.sh | sudo bash"
+                echo -e "sudo apt install speedtest"
+            fi
             ;;
         2)
             echo -e "${YELLOW}选择下载测试文件大小:${NC}"

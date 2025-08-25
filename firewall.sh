@@ -77,16 +77,65 @@ detect_real_vpn_ports() {
     done
 }
 
-# 3. Config Scan: Detect Hysteria2 ports from config files (for Port Hopping)
 detect_hy2_config_ports() {
     echo -e "${CYAN}--> 正在扫描配置文件，查找Hysteria2端口 (特别是跳跃端口)...${NC}" >&2
     local hy2_ports=()
-    local file_list
-    mapfile -t file_list < <(grep -RIl "hysteria" /root /etc /usr/local 2>/dev/null | grep -E "\.ya?ml|\.json" 2>/dev/null)
+    local file_list=()
+    
+    # 定义扫描路径 - 优先使用HOME，然后是系统路径
+    local search_paths=("$HOME" "/root" "/etc" "/usr/local")
+    
+    # 分别获取不同类型的文件列表，并设置优先级
+    local txt_files=()
+    local config_files=()
+    
+    # 获取txt文件列表 - 修复xargs空输入问题，添加hysteria标签
+    for path in "${search_paths[@]}"; do
+        if [[ -d "$path" ]]; then
+            local txt_search_result
+            txt_search_result=$(find "$path" -name "*.txt" -type f 2>/dev/null)
+            if [[ -n "$txt_search_result" ]]; then
+                mapfile -t -O "${#txt_files[@]}" txt_files < <(echo "$txt_search_result" | xargs -r grep -l "hysteria\|port\|listen" 2>/dev/null)
+            fi
+        fi
+    done
+    
+    # 获取yaml/json文件列表
+    for path in "${search_paths[@]}"; do
+        if [[ -d "$path" ]]; then
+            mapfile -t -O "${#config_files[@]}" config_files < <(grep -RIl "hysteria" "$path" 2>/dev/null | grep -E "\.ya?ml|\.json" 2>/dev/null)
+        fi
+    done
+    
+    # 优先级判断：如果找到txt文件，只处理txt文件
+    if [[ ${#txt_files[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}发现 ${#txt_files[@]} 个txt配置文件，优先处理...${NC}" >&2
+        file_list=("${txt_files[@]}")
+    else
+        echo -e "${YELLOW}未发现txt文件，处理 ${#config_files[@]} 个yaml/json配置文件...${NC}" >&2
+        file_list=("${config_files[@]}")
+    fi
 
-    for file in "${file_list[@]}"; do
+    # 如果没有找到任何配置文件，直接返回
+    if [[ ${#file_list[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}未发现任何相关配置文件${NC}" >&2
+        return 0
+    fi
+
+    # 去重文件列表
+    local unique_files=($(printf '%s\n' "${file_list[@]}" | sort -u))
+
+    for file in "${unique_files[@]}"; do
+        # 检查文件是否可读
+        if [[ ! -r "$file" ]]; then
+            echo -e "${YELLOW}跳过不可读文件: $file${NC}" >&2
+            continue
+        fi
+        
+        echo -e "${CYAN}处理配置文件: $file${NC}" >&2
         while IFS= read -r line; do
             local found_ports=()
+            
             # Strategy 1: Parse URI format (hysteria2://...)
             if [[ "$line" == *"hysteria2://"* ]]; then
                 local authority_string=${line#*hysteria2://}
@@ -100,32 +149,50 @@ detect_hy2_config_ports() {
                 done
             fi
             
-            # Strategy 2: Parse generic keywords (listen, port, ports)
-            if [[ "$line" =~ ^\s*(listen|port|ports): ]]; then
-                local value
-                value=$(echo "$line" | sed -E 's/^\s*(listen|port|ports):\s*//' | tr -d '"'\'' ')
-                local port_part=${value##*:} # Handle formats like 0.0.0.0:443
-                found_ports+=("$(echo "$port_part" | sed 's/-/:/')")
+            # Strategy 2: Parse listenHTTPS (TCP协议) - HY2的特殊情况
+            if [[ "$line" =~ ^\s*listenHTTPS: ]]; then
+                # ... (省略提取逻辑)
+                if [[ -n "$port_part" && "$port_part" =~ ^[0-9]+$ ]]; then
+                    found_ports+=("${port_part}+tcp")  # 必须是 +tcp
+                    # ...
+                fi
+            fi
+            
+           
+            # Strategy 3: Parse generic keywords (listen, port, ports) - 默认UDP (HY2特性)
+            if [[ "$line" =~ ^\s*(listen|port|ports): ]] && [[ "$line" != *"listenHTTPS"* ]]; then
+                local value=$(echo "$line" | sed -E 's/^\s*(listen|port|ports):\s*//' | tr -d '"'\'' ')
+                
+                if [[ "$line" =~ ^\s*ports: ]]; then
+                    found_ports+=("$value") # 直接使用整个值，例如 "12345:13210"
+                else
+                    local port_part=${value##*:}
+                    found_ports+=("$port_part")
+                fi
             fi
 
+            # 验证并添加找到的端口
             for p in "${found_ports[@]}"; do
-                if validate_port_input "$p"; then
-                    hy2_ports+=("$p")
+                # 分离端口和协议标签
+                local port_only="${p%+*}"  # 移除+tcp等标签，只保留端口部分进行验证
+                if validate_port_input "$port_only"; then
+                    hy2_ports+=("$p")  # 保留完整格式（包含标签）
                 fi
             done
-        done < <(grep -v '^\s*#' "$file")
+        done < <(grep -v '^\s*#' "$file" 2>/dev/null || true)
     done
     
-    if [ ${#hy2_ports[@]} -gt 0 ]; then
+    if [[ ${#hy2_ports[@]} -gt 0 ]]; then
         printf '%s\n' "${hy2_ports[@]}" | sort -u
     fi
 }
 
-# 4. Intelligent Port Management (FULLY AUTOMATIC)
+# 修改后的 intelligent_port_management 函数
+# 最终修复版 intelligent_port_management 函数
 intelligent_port_management() {
     local firewall_type=$1
     echo -e "${BLUE}=================================================${NC}"
-    echo -e "${GREEN}VPN服务端口智能管理 (v10.0 全自动版)${NC}"
+    echo -e "${GREEN}VPN服务端口智能管理 (v10.4 最终修复版)${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
     local ports_from_scan=($(detect_real_vpn_ports))
@@ -133,24 +200,42 @@ intelligent_port_management() {
     
     declare -A port_map
     
-    # Process system ports first
     port_map[22]="tcp"
     port_map[80]="tcp"
     
-    # Process kernel scan results (highest priority)
+    # 1. 处理内核扫描结果 (最高优先级)
     for item in "${ports_from_scan[@]}"; do
         local port=${item%:*}
         local proto=${item#*:}
-        port_map[$port]=$proto
+        port_map["$port"]=$proto
     done
 
-    # Process config scan results (add only if not defined by kernel scan)
-    for port in "${ports_from_config[@]}"; do
-        if [[ -z "${port_map[$port]}" ]]; then
-            port_map[$port]="udp"
+    # 2. 处理配置文件扫描结果 (严格遵循 +tcp 逻辑)
+    for item in "${ports_from_config[@]}"; do
+        if [[ "$item" == *"+tcp"* ]]; then
+            # 这是一个 TCP 端口
+            local port_only="${item%+tcp}"
+            
+            # 检查 port_map，处理协议合并
+            if [[ "${port_map[$port_only]}" == "udp" ]]; then
+                port_map[$port_only]="both" # 内核是UDP，配置是TCP -> both
+            elif [[ -z "${port_map[$port_only]}" ]]; then
+                port_map[$port_only]="tcp" # 全新的端口 -> tcp
+            fi
+        else
+            # 这是一个 UDP 端口/范围
+            local port_only="$item"
+            
+            # 检查 port_map，处理协议合并
+            if [[ "${port_map[$port_only]}" == "tcp" ]]; then
+                port_map[$port_only]="both" # 内核是TCP，配置是UDP -> both
+            elif [[ -z "${port_map[$port_only]}" ]]; then
+                port_map[$port_only]="udp" # 全新的端口 -> udp
+            fi
         fi
     done
 
+    # 3. 分类端口
     local ports_tcp=() ports_udp=() ports_both=()
     for port in "${!port_map[@]}"; do
         case "${port_map[$port]}" in
@@ -160,36 +245,38 @@ intelligent_port_management() {
         esac
     done
 
-    # Final unique lists
-    local unique_ports_both=$(printf '%s\n' "${ports_both[@]}" | sort -n -u)
-    local unique_ports_udp=$(printf '%s\n' "${ports_udp[@]}" | sort -n -u)
-    local unique_ports_tcp=$(printf '%s\n' "${ports_tcp[@]}" | sort -n -u)
+    # 4. 生成最终列表并执行
+    local unique_ports_both=($(printf '%s\n' "${ports_both[@]}" | sort -u))
+    local unique_ports_udp=($(printf '%s\n' "${ports_udp[@]}" | sort -u))
+    local unique_ports_tcp=($(printf '%s\n' "${ports_tcp[@]}" | sort -u))
 
-    if [ -z "$unique_ports_both" ] && [ -z "$unique_ports_udp" ] && [[ "${#ports_tcp[@]}" -le 2 ]]; then
+    if [ ${#unique_ports_both[@]} -eq 0 ] && [ ${#unique_ports_udp[@]} -eq 0 ] && [[ ${#unique_ports_tcp[@]} -le 2 ]]; then
         echo -e "${YELLOW}未检测到任何正在运行的VPN服务或有效的Hysteria2配置。${NC}"
+        return
     fi
 
     echo -e "${YELLOW}将根据以下检测结果，自动为您开放端口：${NC}"
-    [ -n "$unique_ports_both" ] && echo -e "  - ${CYAN}来自内核扫描 (协议: TCP+UDP):${NC} ${GREEN}${unique_ports_both//$'\n'/, }${NC}"
-    [ -n "$unique_ports_udp" ] && echo -e "  - ${CYAN}来自配置/内核 (协议: UDP Only):${NC} ${GREEN}${unique_ports_udp//$'\n'/, }${NC}"
-    [ -n "$unique_ports_tcp" ] && echo -e "  - ${CYAN}来自系统/内核 (协议: TCP Only):${NC} ${GREEN}${unique_ports_tcp//$'\n'/, }${NC}"
+    [ ${#unique_ports_both[@]} -gt 0 ] && echo -e "  - ${CYAN}协议: TCP+UDP:${NC} ${GREEN}${unique_ports_both[*]}${NC}"
+    [ ${#unique_ports_udp[@]} -gt 0 ] && echo -e "  - ${CYAN}协议: UDP Only:${NC} ${GREEN}${unique_ports_udp[*]}${NC}"
+    [ ${#unique_ports_tcp[@]} -gt 0 ] && echo -e "  - ${CYAN}协议: TCP Only:${NC} ${GREEN}${unique_ports_tcp[*]}${NC}"
     
     echo -e "\n${YELLOW}开始执行防火墙操作...${NC}"
 
-    for port in $unique_ports_both; do manage_firewall_port "open" "$port" "both" "$firewall_type" "both"; done
-    for port in $unique_ports_udp; do manage_firewall_port "open" "$port" "udp" "$firewall_type" "both"; done
-    for port in $unique_ports_tcp; do manage_firewall_port "open" "$port" "tcp" "$firewall_type" "both"; done
+    for port in "${unique_ports_both[@]}"; do manage_firewall_port "open" "$port" "both" "$firewall_type" "both"; done
+    for port in "${unique_ports_udp[@]}"; do manage_firewall_port "open" "$port" "udp" "$firewall_type" "both"; done
+    for port in "${unique_ports_tcp[@]}"; do manage_firewall_port "open" "$port" "tcp" "$firewall_type" "both"; done
 
     echo -e "\n${GREEN}所有已识别的端口规则已添加/验证。${NC}"
     if [ "$firewall_type" = "iptables" ]; then
         echo -e "${YELLOW}正在保存 iptables 规则...${NC}"
         mkdir -p /etc/iptables
         iptables-save > /etc/iptables/rules.v4
-        if command -v ip6tables-save &>/dev/null; then ip6tables-save > /etc/iptables/rules.v6; fi
+        if command -v ip6tables-save &>/dev/null; then 
+            ip6tables-save > /etc/iptables/rules.v6
+        fi
         echo -e "${GREEN}规则已保存。${NC}"
     fi
 }
-
 
 # 5. Unified Firewall Port Management
 manage_firewall_port() {
@@ -408,6 +495,7 @@ port_management_handler() {
 # ==============================================================================
 
 firewall_settings() {
+    while true; do
     clear
     echo -e "${BLUE}=================================================${NC}"
     echo -e "${GREEN}防火墙设置 (v10.0 - 最终版)${NC}"
@@ -515,20 +603,22 @@ firewall_settings() {
                 *) echo -e "${RED}无效选择。${NC}" ;;
             esac
             ;;
-        0) echo -e "${GREEN}退出脚本。${NC}"; exit 0 ;;
+        0) echo -e "${GREEN}退出脚本。${NC}"; return 0 ;;
         *) echo -e "${RED}无效选项，请重试${NC}"; sleep 2 ;;
     esac
                 
     read -p "按回车键返回菜单..." temp
+  done
 }
+
 
 # Main function
 main() {
     if [ "$(id -u)" -ne 0 ]; then echo -e "${RED}此脚本需要 root 权限运行。${NC}"; exit 1; fi
     get_ip_addresses
-    while true; do
+   # while true; do
         firewall_settings
-    done
+  #  done
 }
 
 # Script entry point

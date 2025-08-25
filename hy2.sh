@@ -2144,6 +2144,92 @@ generate_client_config(){
     echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 }
 
+# ==============================================================================
+# 新增的备份函数 (v4 - 生成防火墙友好的端口清单)
+# ==============================================================================
+# ==============================================================================
+# 新增的备份函数 (v9 - 按要求格式化 listenHTTPS 输出)
+# ==============================================================================
+backup_configurations() {
+    echoColor skyBlue "\n............................................."
+    echoColor yellow "正在为您备份核心配置文件并生成防火墙清单 (v9)..."
+
+    local BACKUP_YAML_PATH="/etc/hihy/conf/backup.yaml"
+    local CONFIG_YAML_PATH="/etc/hihy/conf/config.yaml"
+
+    if [ ! -f "$BACKUP_YAML_PATH" ] || [ ! -f "$CONFIG_YAML_PATH" ]; then
+        echoColor red "错误: 核心配置文件 (backup.yaml 或 config.yaml) 不存在，无法执行备份。"
+        return 1
+    fi
+    
+    local remarks=$(getYamlValue "$BACKUP_YAML_PATH" "remarks")
+    if [ -z "$remarks" ]; then
+        echoColor red "错误: 未能从 backup.yaml 读取备注信息，无法为备份文件命名，备份已取消。"
+        return 1
+    fi
+
+    local BACKUP_DIR="$HOME/HY2"
+    mkdir -p "$BACKUP_DIR"
+
+    # 1. 备份服务端配置
+    cp -f "$BACKUP_YAML_PATH" "$BACKUP_DIR/${remarks}-backup.yaml"
+    cp -f "$CONFIG_YAML_PATH" "$BACKUP_DIR/${remarks}-config.yaml"
+    echoColor green "  -> 服务端配置已成功备份并重命名。"
+
+    # 2. 备份客户端配置
+    local CLIENT_V2RAYN_FILE="./Hy2-${remarks}-v2rayN.yaml"
+    local CLIENT_CLASH_FILE="./Hy2-${remarks}-ClashMeta.yaml"
+    if [ -f "$CLIENT_V2RAYN_FILE" ]; then
+        cp -f "$CLIENT_V2RAYN_FILE" "$BACKUP_DIR/"
+        cp -f "$CLIENT_CLASH_FILE" "$BACKUP_DIR/"
+        echoColor green "  -> 客户端配置已成功备份。"
+    else
+        echoColor yellow "  -> 未在当前目录找到客户端配置文件，已跳过。"
+    fi
+    
+    # 3. 生成防火墙端口清单 (遵循简单、直接的记录原则)
+    echoColor yellow "\n正在生成防火墙端口清单文件..."
+    local PORTS_FILE="$BACKUP_DIR/Hysteria-ports.txt"
+    > "$PORTS_FILE" # 清空或创建文件
+
+    # 步骤 A: 记录来自 backup.yaml 的端口信息
+    # 主端口
+    local main_port=$(getYamlValue "$BACKUP_YAML_PATH" "serverPort")
+    if [[ -n "$main_port" && "$main_port" != "null" ]]; then
+        echo "port: $main_port" >> "$PORTS_FILE"
+        echoColor green "  -> 已记录主端口: port: $main_port"
+    fi
+    # 跳跃端口
+    local hopping_status=$(getYamlValue "$BACKUP_YAML_PATH" "portHoppingStatus")
+    if [[ "$hopping_status" == "true" ]]; then
+        local start_port=$(getYamlValue "$BACKUP_YAML_PATH" "portHoppingStart")
+        local end_port=$(getYamlValue "$BACKUP_YAML_PATH" "portHoppingEnd")
+        if [[ -n "$start_port" && -n "$end_port" && "$start_port" != "null" && "$end_port" != "null" ]]; then
+            local port_range="${start_port}:${end_port}"
+            echo "ports: $port_range" >> "$PORTS_FILE"
+            echoColor green "  -> 已记录跳跃端口: ports: $port_range"
+        fi
+    fi
+    
+    # 步骤 B: 检查并直接记录来自 config.yaml 的 listenHTTPS 信息，并按要求格式化
+    if grep -q "listenHTTPS:" "$CONFIG_YAML_PATH"; then
+        local tcp_port_str_raw=$(getYamlValue "$CONFIG_YAML_PATH" "masquerade.listenHTTPS")
+        
+        # 检查值是否存在且不为 "null"
+        if [[ -n "$tcp_port_str_raw" && "$tcp_port_str_raw" != "null" ]]; then
+            # 使用 Bash 的参数扩展功能去除值前面的冒号
+            local tcp_port_clean=${tcp_port_str_raw#*:}
+            
+            # 写入 "listenHTTPS: <清理后的值>"
+            echo "listenHTTPS: $tcp_port_clean" >> "$PORTS_FILE"
+            echoColor green "  -> 已记录并格式化TCP伪装端口: listenHTTPS: $tcp_port_clean"
+        fi
+    fi
+
+    echoColor purple "\n✅ 防火墙端口清单已生成: $PORTS_FILE"
+    echoColor skyBlue "............................................."
+}
+
 generateMetaYaml(){
     remarks=$(getYamlValue "/etc/hihy/conf/backup.yaml" "remarks")
     local metaFile="./Hy2-${remarks}-ClashMeta.yaml"
@@ -2895,7 +2981,7 @@ show_menu() {
     echo -e "$(echoColor skyBlue "13) 查看hysteria2统计信息")"
     echo -e "$(echoColor yellow "14) 查看实时日志")"
     echo -e "$(echoColor yellow "15) 添加socks5出站[支持自动配置warp]")"
-
+    echo -e "$(echoColor yellow "16) 备份配置")"
     echo -e "$(echoColor purple "###############################")"
 
     echo -e "$(echoColor magenta "0) 退出")"
@@ -2931,6 +3017,7 @@ menu() {
             13) getHysteriaTrafic; wait_for_continue ;;
             14) checkLogs; exit 0 ;;
             15) addSocks5Outbound; exit 0 ;;
+            16) backup_configurations; wait_for_continue ;;
             0) exit 0 ;;
             *) echoColor red "Input Error !!!"; wait_for_continue ;;
         esac
@@ -2954,6 +3041,7 @@ case "$1" in
     getHysteriaTrafic|13) echoColor purple "-> 13) 查看hysteria统计信息"; getHysteriaTrafic ;;
     checkLogs|14) echoColor purple "-> 14) 查看实时日志"; checkLogs ;;
     addSocks5Outbound|15) echoColor purple "-> 15) 添加socks5出站"; addSocks5Outbound ;;
+    backup_configurations|16) echoColor purple "-> 16) 备份配置文件"; backup_configurations ;;
     cronTask) cronTask ;;
     *) menu ;;
 esac

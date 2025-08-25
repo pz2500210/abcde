@@ -210,7 +210,7 @@ main() {
         read -p "请选择 [0-9]: " OPTION
         
         case $OPTION in
-            1) hysteria2_management ;;
+            1) bash "${SCRIPT_DIR}/hy2.sh" ;;
             2) xui_management ;;
             3) singbox_management ;;
             4) firewall_settings ;;

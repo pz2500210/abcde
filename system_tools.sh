@@ -483,6 +483,7 @@ uninstall() {
         
     case $UNINSTALL_OPTION in
         1) uninstall_hysteria2 ;;
+ #       1) bash "${SCRIPT_DIR}/hy2.sh" ;;
         2) uninstall_3xui ;;
         3) uninstall_singbox_yg11 ;;
         4) uninstall_all ;;
@@ -502,6 +503,7 @@ uninstall_hysteria2() {
     echo -e "${GREEN}卸载Hysteria-2:${NC}"
     echo -e "${BLUE}=================================================${NC}"
     
+    :<<'COMMENT'
     # 检查是否安装
     if [ ! -f "/usr/local/bin/hysteria" ]; then
         echo -e "${RED}Hysteria-2未安装，无需卸载${NC}"
@@ -527,6 +529,54 @@ uninstall_hysteria2() {
     sed -i '/Hysteria-2/d' /root/.sb_logs/main_install.log 2>/dev/null
     
     echo -e "${GREEN}Hysteria-2卸载完成${NC}"
+    read -p "按回车键继续..." temp
+}
+COMMENT
+  # 检查是否安装，如果未安装则直接退出
+#    if [ ! -f "/usr/local/bin/hysteria" ]; then
+#        echo -e "${RED}Hysteria-2未安装，无需卸载${NC}"
+#        read -p "按回车键继续..." temp
+#        return
+#    fi
+
+    # 定义卸载脚本的路径
+    local uninstaller_script="${SCRIPT_DIR}/hy2.sh"
+    
+    # 优先使用官方卸载脚本
+    if [ -f "$uninstaller_script" ]; then
+        echo -e "${YELLOW}检测到官方管理脚本，将启动该脚本进行卸载...${NC}"
+        echo -e "${CYAN}请在接下来的菜单中选择 '卸载' 选项以完成操作。${NC}"
+        read -p "按回车键以继续..." temp
+        # 执行同目录下的 hy2.sh 脚本
+        bash "$uninstaller_script"
+    else
+        # 如果官方脚本不存在，则执行手动卸载作为备用方案
+        echo -e "${YELLOW}未找到 hy2.sh 脚本，将执行手动卸载...${NC}"
+        
+        # 停止并禁用服务
+        systemctl stop hysteria-server &>/dev/null
+        systemctl disable hysteria-server &>/dev/null
+        
+        # 删除核心文件
+        echo -e "${YELLOW}正在删除核心文件...${NC}"
+        rm -f /usr/local/bin/hysteria
+        rm -rf /etc/hysteria
+        rm -f /etc/systemd/system/hysteria-server.service
+        
+        # 重新加载 systemd
+        systemctl daemon-reload
+    fi
+
+    # 清理安装脚本可能生成的额外配置文件
+    echo -e "${YELLOW}正在清理残留的客户端配置文件...${NC}"
+    rm -f /root/Hy2-hy2-ClashMeta.yaml
+    rm -f /root/Hy2-hy2-v2rayN.yaml
+
+    # 从主安装日志中删除记录
+    echo -e "${YELLOW}正在清理安装记录...${NC}"
+    sed -i '/Hysteria-2/d' /root/.sb_logs/main_install.log 2>/dev/null
+    
+    echo -e "\n${GREEN}Hysteria-2 卸载流程执行完毕！${NC}"
     read -p "按回车键继续..." temp
 }
 

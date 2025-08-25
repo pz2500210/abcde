@@ -235,6 +235,10 @@ echo -e "${YELLOW}下载firewall.sh...${NC}"
 curl -s -o firewall.sh ${REPO_URL}/firewall.sh
 echo "firewall.sh 大小: $(du -b firewall.sh | cut -f1) 字节"
 
+echo -e "${YELLOW}下载firewall.sh...${NC}"
+curl -s -o firewall.sh ${REPO_URL}/hy2.sh
+echo "firewall.sh 大小: $(du -b firewall.sh | cut -f1) 字节"
+
 # 检查文件是否下载成功
 if [ ! -s server_init.sh ] || [ ! -s cleanup.sh ] || [ ! -s xx.sh ] || [ ! -s proxy_bbr.sh ] || [ ! -s cert_dns.sh ] || [ ! -s system_tools.sh ] || [ ! -s firewall.sh ]; then
     echo -e "${RED}文件下载失败，尝试备用URL...${NC}"
@@ -255,6 +259,7 @@ if [ ! -s server_init.sh ] || [ ! -s cleanup.sh ] || [ ! -s xx.sh ] || [ ! -s pr
     curl -s -o cert_dns.sh ${REPO_URL}/cert_dns.sh
     curl -s -o system_tools.sh ${REPO_URL}/system_tools.sh
     curl -s -o firewall.sh ${REPO_URL}/firewall.sh
+    curl -s -o firewall.sh ${REPO_URL}/hy2.sh
     
     # 再次检查
     if [ ! -s server_init.sh ] || [ ! -s cleanup.sh ] || [ ! -s xx.sh ] || [ ! -s proxy_bbr.sh ] || [ ! -s cert_dns.sh ] || [ ! -s system_tools.sh ] || [ ! -s firewall.sh ]; then
@@ -278,6 +283,7 @@ cp -f proxy_bbr.sh /usr/local/xx/
 cp -f cert_dns.sh /usr/local/xx/
 cp -f system_tools.sh /usr/local/xx/
 cp -f firewall.sh /usr/local/xx/
+cp -f hy2.sh /usr/local/xx/
 
 # 设置执行权限
 echo -e "${YELLOW}设置执行权限...${NC}"
@@ -288,6 +294,7 @@ chmod +x /usr/local/xx/firewall.sh
 chmod +x /usr/local/xx/server_init.sh
 chmod +x /usr/local/xx/cleanup.sh
 chmod +x /usr/local/xx/xx.sh
+chmod +x /usr/local/xx/hy2.sh
 
 # 创建服务器管理面板脚本
 echo -e "${YELLOW}创建服务器管理面板脚本...${NC}"
